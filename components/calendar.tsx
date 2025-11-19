@@ -1,20 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 
-interface Trader {
+interface Duty {
   id: string;
   traders: string;
-  date?: string;
+  date_dezurztva_or_otdyh?: string;
+  tip_dezursva_or_otdyh?: string;
+  utverzdeno?: boolean;
   created_at?: string;
 }
 
 interface CalendarProps {
-  onDayClick: (date: Date, traders: Trader[]) => void;
+  onDayClick: (date: Date, duties: Duty[]) => void;
+  onDoubleClick?: (date: Date) => void;
 }
 
 const monthNames = [
@@ -34,16 +39,46 @@ const monthNames = [
 
 const weekDays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
-export function Calendar({ onDayClick }: CalendarProps) {
+// Функция для определения контрастного цвета текста
+function getContrastColor(hexColor: string): string {
+  // Удаляем # если есть
+  const color = hexColor.replace("#", "");
+  
+  // Преобразуем в RGB
+  const r = parseInt(color.substring(0, 2), 16);
+  const g = parseInt(color.substring(2, 4), 16);
+  const b = parseInt(color.substring(4, 6), 16);
+  
+  // Вычисляем яркость
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  
+  // Возвращаем черный или белый в зависимости от яркости
+  return brightness > 128 ? "#000000" : "#ffffff";
+}
+
+interface TraderFilter {
+  id: string;
+  name_short: string;
+}
+
+export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [traders, setTraders] = useState<Map<string, Trader[]>>(new Map());
+  const [duties, setDuties] = useState<Map<string, Duty[]>>(new Map());
+  const [allDuties, setAllDuties] = useState<Map<string, Duty[]>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [lastClickTime, setLastClickTime] = useState<{ date: Date; time: number } | null>(null);
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [traders, setTraders] = useState<TraderFilter[]>([]);
+  const [selectedTraders, setSelectedTraders] = useState<Set<string>>(new Set());
+  const [showApproved, setShowApproved] = useState<boolean | null>(null); // null = все, true = утвержденные, false = не утвержденные
+  const [dutyTypeColors, setDutyTypeColors] = useState<Map<string, string>>(new Map());
+  const [dutyTypeWeights, setDutyTypeWeights] = useState<Map<string, number>>(new Map());
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
   useEffect(() => {
-    const fetchTraders = async () => {
+    const fetchDuties = async () => {
       setLoading(true);
       
       // Проверка переменных окружения
@@ -59,44 +94,190 @@ export function Calendar({ onDayClick }: CalendarProps) {
       const firstDay = new Date(year, month, 1);
       const lastDay = new Date(year, month + 1, 0);
 
-      // Получаем все данные из таблицы traders
-      // Фильтрацию по дате делаем на клиенте, так как структура таблицы может отличаться
-      const { data, error } = await supabase.from("traders").select("*");
+      // Получаем данные из таблицы dezurstva
+      // Сначала пробуем получить все данные без фильтрации
+      const { data, error } = await supabase
+        .from("dezurstva")
+        .select("*");
 
       if (error) {
-        console.error("Error fetching traders:", error);
+        console.error("Error fetching duties:", error);
+        console.error("Error details:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        console.error("Full error object:", JSON.stringify(error, null, 2));
+        
+        // Пробуем альтернативное название таблицы
+        console.log("Trying alternative table name...");
+        const { data: altData, error: altError } = await supabase
+          .from("dezhurstva")
+          .select("*");
+        
+        if (altError) {
+          console.error("Alternative table also failed:", altError);
+        } else {
+          console.log("Alternative table worked! Data:", altData);
+        }
+        
         setLoading(false);
         return;
       }
 
+      console.log("Duties data fetched:", data);
+      console.log("Data count:", data?.length);
+
       // Группируем по датам и фильтруем по текущему месяцу
-      const tradersMap = new Map<string, Trader[]>();
-      if (data) {
-        data.forEach((trader) => {
-          // Используем date если есть, иначе created_at
-          const dateKey = trader.date || trader.created_at?.split("T")[0] || "";
+      const dutiesMap = new Map<string, Duty[]>();
+      if (data && data.length > 0) {
+        console.log("Processing duties data, first item:", data[0]);
+        data.forEach((duty) => {
+          // Пробуем разные варианты названий поля даты
+          const dateKey = 
+            duty.date_dezurztva_or_otdyh || 
+            duty.date_dezurstva_or_otdyh ||
+            duty.date ||
+            duty.created_at?.split("T")[0] || 
+            "";
+          
+          console.log("Processing duty:", duty, "dateKey:", dateKey);
+          
           if (dateKey) {
             // Фильтруем по месяцу на клиенте
-            const traderDate = new Date(dateKey);
+            const dutyDate = new Date(dateKey);
             if (
-              traderDate >= firstDay &&
-              traderDate <= lastDay &&
-              traderDate.getMonth() === month &&
-              traderDate.getFullYear() === year
+              dutyDate >= firstDay &&
+              dutyDate <= lastDay &&
+              dutyDate.getMonth() === month &&
+              dutyDate.getFullYear() === year
             ) {
-              const existing = tradersMap.get(dateKey) || [];
-              tradersMap.set(dateKey, [...existing, trader]);
+              const existing = dutiesMap.get(dateKey) || [];
+              dutiesMap.set(dateKey, [...existing, duty]);
             }
           }
         });
+        console.log("Duties map after processing:", Array.from(dutiesMap.entries()));
+      } else {
+        console.log("No data returned from query");
       }
 
-      setTraders(tradersMap);
+      setAllDuties(dutiesMap);
+      setDuties(dutiesMap);
       setLoading(false);
     };
 
-    fetchTraders();
+    fetchDuties();
   }, [year, month]);
+
+  // Загружаем цвета и веса типов дежурств
+  useEffect(() => {
+    const fetchDutyTypeData = async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("typ_dezurstva")
+        .select("tip_dezursva_or_otdyh, color, ves");
+
+      if (!error && data) {
+        const colorMap = new Map<string, string>();
+        const weightMap = new Map<string, number>();
+        
+        data.forEach((item) => {
+          if (item.tip_dezursva_or_otdyh) {
+            if (item.color) {
+              colorMap.set(item.tip_dezursva_or_otdyh, item.color);
+            }
+            // Используем ves или 999 как значение по умолчанию для сортировки
+            const weight = item.ves !== null && item.ves !== undefined ? item.ves : 999;
+            weightMap.set(item.tip_dezursva_or_otdyh, weight);
+          }
+        });
+        
+        setDutyTypeColors(colorMap);
+        setDutyTypeWeights(weightMap);
+      }
+    };
+
+    fetchDutyTypeData();
+  }, []);
+
+  // Загружаем список трейдеров для фильтра
+  useEffect(() => {
+    const fetchTraders = async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("traders")
+        .select("id, name_short")
+        .eq("mozno_dezurit", true)
+        .order("name_short", { ascending: true });
+
+      if (!error && data) {
+        setTraders(data);
+        // По умолчанию выбираем всех трейдеров
+        setSelectedTraders(new Set(data.map(t => t.name_short)));
+      }
+    };
+
+    fetchTraders();
+  }, []);
+
+  // Фильтруем дежурства по выбранным трейдерам и статусу утверждения
+  useEffect(() => {
+    if (selectedTraders.size === 0) {
+      setDuties(new Map());
+      return;
+    }
+
+    const filteredDuties = new Map<string, Duty[]>();
+    
+    allDuties.forEach((dutiesList, dateKey) => {
+      const filtered = dutiesList.filter(duty => {
+        // Фильтр по трейдерам
+        if (!selectedTraders.has(duty.traders)) {
+          return false;
+        }
+        
+        // Фильтр по статусу утверждения
+        if (showApproved !== null) {
+          if (showApproved === true && duty.utverzdeno !== true) {
+            return false;
+          }
+          if (showApproved === false && duty.utverzdeno === true) {
+            return false;
+          }
+        }
+        
+        return true;
+      });
+      
+      if (filtered.length > 0) {
+        filteredDuties.set(dateKey, filtered);
+      }
+    });
+
+    setDuties(filteredDuties);
+  }, [selectedTraders, allDuties, showApproved]);
+
+  const handleTraderToggle = (nameShort: string) => {
+    setSelectedTraders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(nameShort)) {
+        newSet.delete(nameShort);
+      } else {
+        newSet.add(nameShort);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedTraders.size === traders.length) {
+      setSelectedTraders(new Set());
+    } else {
+      setSelectedTraders(new Set(traders.map(t => t.name_short)));
+    }
+  };
 
   const getDaysInMonth = () => {
     const firstDay = new Date(year, month, 1);
@@ -131,8 +312,8 @@ export function Calendar({ onDayClick }: CalendarProps) {
     if (!date) return;
 
     const dateKey = date.toISOString().split("T")[0];
-    const dayTraders = traders.get(dateKey) || [];
-    onDayClick(date, dayTraders);
+    const dayDuties = duties.get(dateKey) || [];
+    onDayClick(date, dayDuties);
   };
 
   const days = getDaysInMonth();
@@ -201,7 +382,19 @@ export function Calendar({ onDayClick }: CalendarProps) {
               }
 
               const dateKey = date.toISOString().split("T")[0];
-              const dayTraders = traders.get(dateKey) || [];
+              const dayDutiesRaw = duties.get(dateKey) || [];
+              
+              // Сортируем дежурства по весу (ves) из таблицы typ_dezurstva
+              const dayDuties = [...dayDutiesRaw].sort((a, b) => {
+                const weightA = a.tip_dezursva_or_otdyh 
+                  ? (dutyTypeWeights.get(a.tip_dezursva_or_otdyh) ?? 999)
+                  : 999;
+                const weightB = b.tip_dezursva_or_otdyh
+                  ? (dutyTypeWeights.get(b.tip_dezursva_or_otdyh) ?? 999)
+                  : 999;
+                return weightA - weightB; // Сортировка по возрастанию (меньше значение - выше в списке)
+              });
+              
               const todayClass = isToday(date)
                 ? "bg-primary text-primary-foreground font-semibold"
                 : "bg-muted hover:bg-muted/80";
@@ -209,7 +402,32 @@ export function Calendar({ onDayClick }: CalendarProps) {
               return (
                 <button
                   key={index}
-                  onClick={() => handleDayClick(date)}
+                  onClick={(e) => {
+                    const now = Date.now();
+                    const isDoubleClick = 
+                      lastClickTime?.date.getTime() === date.getTime() && 
+                      now - lastClickTime.time < 300;
+
+                    // Очищаем предыдущий таймер
+                    if (clickTimeoutRef.current) {
+                      clearTimeout(clickTimeoutRef.current);
+                      clickTimeoutRef.current = null;
+                    }
+
+                    if (isDoubleClick && onDoubleClick) {
+                      // Двойной клик - открываем карточку добавления дежурства
+                      setLastClickTime(null);
+                      onDoubleClick(date);
+                    } else {
+                      // Одинарный клик - открываем карточку просмотра
+                      setLastClickTime({ date, time: now });
+                      
+                      clickTimeoutRef.current = setTimeout(() => {
+                        handleDayClick(date);
+                        clickTimeoutRef.current = null;
+                      }, 300);
+                    }
+                  }}
                   className={cn(
                     "aspect-square rounded-md p-1 md:p-2 text-left transition-colors",
                     "flex flex-col items-start justify-start",
@@ -219,23 +437,42 @@ export function Calendar({ onDayClick }: CalendarProps) {
                 >
                   <span className="mb-1">{date.getDate()}</span>
                   <div className="flex flex-col gap-0.5 w-full overflow-hidden">
-                    {dayTraders.slice(0, 2).map((trader, idx) => (
-                      <div
-                        key={idx}
-                        className={cn(
-                          "text-[10px] md:text-xs truncate px-1 py-0.5 rounded",
-                          isToday(date)
-                            ? "bg-primary-foreground/20"
-                            : "bg-background/50"
-                        )}
-                        title={trader.traders}
-                      >
-                        {trader.traders}
-                      </div>
-                    ))}
-                    {dayTraders.length > 2 && (
+                    {dayDuties.slice(0, 3).map((duty, idx) => {
+                      // Получаем цвет для утвержденных дежурств
+                      const dutyColor = duty.utverzdeno === true && duty.tip_dezursva_or_otdyh
+                        ? dutyTypeColors.get(duty.tip_dezursva_or_otdyh)
+                        : null;
+
+                      return (
+                        <div
+                          key={idx}
+                          className={cn(
+                            "text-[10px] md:text-xs truncate px-1 py-0.5 rounded",
+                            isToday(date)
+                              ? dutyColor
+                                ? ""
+                                : "bg-primary-foreground/20"
+                              : dutyColor
+                                ? ""
+                                : "bg-background/50"
+                          )}
+                          style={
+                            dutyColor
+                              ? {
+                                  backgroundColor: dutyColor,
+                                  color: getContrastColor(dutyColor),
+                                }
+                              : undefined
+                          }
+                          title={duty.traders}
+                        >
+                          {duty.traders}
+                        </div>
+                      );
+                    })}
+                    {dayDuties.length > 3 && (
                       <div className="text-[10px] text-muted-foreground">
-                        +{dayTraders.length - 2}
+                        +{dayDuties.length - 3}
                       </div>
                     )}
                   </div>
@@ -244,6 +481,100 @@ export function Calendar({ onDayClick }: CalendarProps) {
             })}
           </div>
         )}
+
+        {/* Фильтры */}
+        <div className="mt-6 pt-4 border-t">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            {/* Фильтр по трейдерам - слева */}
+            {traders.length > 0 && (
+              <div className="space-y-3 flex-1">
+                <Label className="text-sm font-semibold">Фильтр по трейдерам:</Label>
+                <div className="flex flex-wrap gap-3">
+                  {traders.map((trader) => (
+                    <div
+                      key={trader.id}
+                      className="flex items-center space-x-2"
+                    >
+                      <Checkbox
+                        id={`trader-${trader.id}`}
+                        checked={selectedTraders.has(trader.name_short)}
+                        onCheckedChange={() => handleTraderToggle(trader.name_short)}
+                      />
+                      <Label
+                        htmlFor={`trader-${trader.id}`}
+                        className="text-sm font-medium leading-none cursor-pointer"
+                      >
+                        {trader.name_short || "Без имени"}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSelectAll}
+                  className="h-7 text-xs"
+                >
+                  {selectedTraders.size === traders.length ? "Снять все" : "Выбрать все"}
+                </Button>
+              </div>
+            )}
+
+            {/* Фильтр по статусу утверждения - справа */}
+            <div className="space-y-2 flex-shrink-0">
+              <Label className="text-sm font-semibold">Фильтр по статусу утверждения:</Label>
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="filter-all"
+                    checked={showApproved === null}
+                    onCheckedChange={(checked) => {
+                      if (checked) setShowApproved(null);
+                    }}
+                  />
+                  <Label
+                    htmlFor="filter-all"
+                    className="text-sm font-medium leading-none cursor-pointer"
+                  >
+                    Все
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="filter-approved"
+                    checked={showApproved === true}
+                    onCheckedChange={(checked) => {
+                      if (checked) setShowApproved(true);
+                      else setShowApproved(null);
+                    }}
+                  />
+                  <Label
+                    htmlFor="filter-approved"
+                    className="text-sm font-medium leading-none cursor-pointer"
+                  >
+                    Утверждено
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="filter-not-approved"
+                    checked={showApproved === false}
+                    onCheckedChange={(checked) => {
+                      if (checked) setShowApproved(false);
+                      else setShowApproved(null);
+                    }}
+                  />
+                  <Label
+                    htmlFor="filter-not-approved"
+                    className="text-sm font-medium leading-none cursor-pointer"
+                  >
+                    Не утверждено
+                  </Label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

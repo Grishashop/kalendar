@@ -36,6 +36,7 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userExists, setUserExists] = useState<boolean>(false);
+  const [userCanDuty, setUserCanDuty] = useState<boolean>(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedTrader, setSelectedTrader] = useState<TraderDetails | null>(null);
   const [editingTrader, setEditingTrader] = useState<TraderDetails | null>(null);
@@ -66,6 +67,47 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
         setUserEmail(user.email);
       }
 
+      // Проверяем, есть ли пользователь в таблице traders и может ли он дежурить
+      let userTraderData = null;
+      let userExistsInTable = false;
+      let userCanDutyValue = false;
+      
+      if (user?.email) {
+        const { data: userData } = await supabase
+          .from("traders")
+          .select("id, photo, name_short, mail, mozno_dezurit")
+          .eq("mail", user.email)
+          .single();
+        
+        if (userData) {
+          userTraderData = userData;
+          userExistsInTable = true;
+          userCanDutyValue = userData.mozno_dezurit === true;
+          setUserExists(true);
+          setUserCanDuty(true);
+        } else {
+          setUserExists(false);
+          setUserCanDuty(false);
+        }
+      }
+
+      // Если пользователь не найден или не может дежурить - показываем только его данные
+      if (!userExistsInTable || !userCanDutyValue) {
+        if (userTraderData) {
+          setTraders([{
+            id: userTraderData.id,
+            photo: userTraderData.photo,
+            name_short: userTraderData.name_short,
+            mail: userTraderData.mail,
+          }]);
+        } else {
+          setTraders([]);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Если пользователь может дежурить - показываем всех трейдеров
       const { data, error: fetchError } = await supabase
         .from("traders")
         .select("id, photo, name_short, mail")
@@ -83,18 +125,9 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
       if (data) {
         console.log("Traders data:", data, "Count:", data.length);
         setTraders(data);
-        
-        // Проверяем, есть ли email пользователя в списке трейдеров
-        if (user?.email) {
-          const exists = data.some((trader) => trader.mail === user.email);
-          setUserExists(exists);
-        }
       } else {
         console.log("No data returned from query");
         setTraders([]);
-        if (user?.email) {
-          setUserExists(false);
-        }
       }
 
       setLoading(false);
@@ -103,10 +136,44 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
     fetchTraders();
   }, []);
 
-  const handleAddSuccess = () => {
+  const handleAddSuccess = async () => {
     setShowAddForm(false);
     setUserExists(true);
-    refreshTradersList();
+    
+    // После добавления проверяем mozno_dezurit и обновляем список
+    const supabase = createClient();
+    
+    // Получаем данные пользователя
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    
+    if (user?.email) {
+      const { data: userData } = await supabase
+        .from("traders")
+        .select("id, photo, name_short, mail, mozno_dezurit")
+        .eq("mail", user.email)
+        .single();
+      
+      if (userData) {
+        const canDuty = userData.mozno_dezurit === true;
+        setUserCanDuty(canDuty);
+        
+        // Если пользователь не может дежурить - показываем только его данные
+        if (!canDuty) {
+          setTraders([{
+            id: userData.id,
+            photo: userData.photo,
+            name_short: userData.name_short,
+            mail: userData.mail,
+          }]);
+          return;
+        }
+      }
+    }
+    
+    // Если пользователь может дежурить - показываем всех
+    await refreshTradersList();
   };
 
   const refreshTradersList = async () => {

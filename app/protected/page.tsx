@@ -6,14 +6,17 @@ import { AuthButtonClient } from "@/components/auth-button-client";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Calendar } from "@/components/calendar";
 import { DayDetailsCard } from "@/components/day-details-card";
+import { AddDutyCard } from "@/components/add-duty-card";
 import { TradersList } from "@/components/traders-list";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/client";
 
-interface Trader {
+interface Duty {
   id: string;
   traders: string;
-  date?: string;
+  date_dezurztva_or_otdyh?: string;
+  tip_dezursva_or_otdyh?: string;
+  utverzdeno?: boolean;
   created_at?: string;
 }
 
@@ -24,10 +27,12 @@ interface TraderData {
 
 export default function ProtectedPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [selectedTraders, setSelectedTraders] = useState<Trader[]>([]);
+  const [selectedDuties, setSelectedDuties] = useState<Duty[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<any>(null);
   const [traderData, setTraderData] = useState<TraderData | null>(null);
+  const [showAddDutyCard, setShowAddDutyCard] = useState(false);
+  const [addDutyDate, setAddDutyDate] = useState<Date | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -69,14 +74,27 @@ export default function ProtectedPage() {
     checkAuth();
   }, [router]);
 
-  const handleDayClick = (date: Date, traders: Trader[]) => {
+  const handleDayClick = (date: Date, duties: Duty[]) => {
     setSelectedDate(date);
-    setSelectedTraders(traders);
+    setSelectedDuties(duties);
   };
 
   const handleCloseCard = () => {
     setSelectedDate(null);
-    setSelectedTraders([]);
+    setSelectedDuties([]);
+  };
+
+  const handleDoubleClick = (date: Date) => {
+    setAddDutyDate(date);
+    setShowAddDutyCard(true);
+    setSelectedDate(null); // Закрываем карточку просмотра, если открыта
+  };
+
+  const handleAddDutySuccess = () => {
+    setShowAddDutyCard(false);
+    setAddDutyDate(null);
+    // Обновляем страницу для перезагрузки календаря
+    window.location.reload();
   };
 
   if (isAuthenticated === null) {
@@ -136,7 +154,10 @@ export default function ProtectedPage() {
           </div>
           
           <TabsContent value="calendar">
-            <Calendar onDayClick={handleDayClick} />
+            <Calendar 
+              onDayClick={handleDayClick} 
+              onDoubleClick={handleDoubleClick}
+            />
           </TabsContent>
           
           <TabsContent value="traders">
@@ -149,8 +170,30 @@ export default function ProtectedPage() {
       {selectedDate && (
         <DayDetailsCard
           date={selectedDate}
-          traders={selectedTraders}
+          traders={selectedDuties}
           onClose={handleCloseCard}
+          userEmail={user?.email || null}
+          isAdmin={traderData?.admin || false}
+          currentTraderName={traderData?.name_short}
+          onDelete={() => {
+            // Обновляем страницу для перезагрузки календаря
+            window.location.reload();
+          }}
+        />
+      )}
+
+      {/* Карточка добавления дежурства */}
+      {showAddDutyCard && addDutyDate && (
+        <AddDutyCard
+          date={addDutyDate}
+          userEmail={user?.email || null}
+          isAdmin={traderData?.admin || false}
+          currentTraderName={traderData?.name_short}
+          onSuccess={handleAddDutySuccess}
+          onCancel={() => {
+            setShowAddDutyCard(false);
+            setAddDutyDate(null);
+          }}
         />
       )}
     </main>
