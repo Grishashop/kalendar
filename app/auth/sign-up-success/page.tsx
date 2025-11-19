@@ -5,6 +5,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 export default function Page() {
   return (
@@ -14,15 +16,23 @@ export default function Page() {
           <Card>
             <CardHeader>
               <CardTitle className="text-2xl">
-                Thank you for signing up!
+                Спасибо за регистрацию!
               </CardTitle>
-              <CardDescription>Check your email to confirm</CardDescription>
+              <CardDescription>Проверьте вашу почту для подтверждения</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                You&apos;ve successfully signed up. Please check your email to
-                confirm your account before signing in.
+                Вы успешно зарегистрировались. Пожалуйста, проверьте вашу почту для
+                подтверждения аккаунта перед входом.
               </p>
+              <div className="flex gap-3 pt-2">
+                <Button asChild variant="default" className="flex-1">
+                  <Link href="/auth/login">Войти</Link>
+                </Button>
+                <Button asChild variant="outline" className="flex-1">
+                  <Link href="/">Выход</Link>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>

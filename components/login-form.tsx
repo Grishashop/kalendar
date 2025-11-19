@@ -16,6 +16,33 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+// Функция для перевода ошибок Supabase на русский
+const translateError = (errorMessage: string): string => {
+  const errorTranslations: Record<string, string> = {
+    "Email not confirmed": "Email не подтвержден",
+    "Invalid login credentials": "Неверный email или пароль",
+    "User already registered": "Пользователь уже зарегистрирован",
+    "Password should be at least 6 characters": "Пароль должен содержать минимум 6 символов",
+    "Unable to validate email address: invalid format": "Неверный формат email адреса",
+    "User not found": "Пользователь не найден",
+    "Email rate limit exceeded": "Превышен лимит запросов. Попробуйте позже",
+  };
+
+  // Проверяем точное совпадение
+  if (errorTranslations[errorMessage]) {
+    return errorTranslations[errorMessage];
+  }
+
+  // Проверяем частичное совпадение (для ошибок с дополнительным текстом)
+  for (const [key, value] of Object.entries(errorTranslations)) {
+    if (errorMessage.includes(key)) {
+      return value;
+    }
+  }
+
+  return errorMessage;
+};
+
 export function LoginForm({
   className,
   ...props
@@ -33,15 +60,20 @@ export function LoginForm({
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (error) throw error;
+      if (error) {
+        setError(translateError(error.message));
+        setIsLoading(false);
+        return;
+      }
       // Update this route to redirect to an authenticated route. The user already has an active session.
       router.push("/protected");
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      const errorMessage = error instanceof Error ? error.message : "Произошла ошибка";
+      setError(translateError(errorMessage));
     } finally {
       setIsLoading(false);
     }
@@ -51,9 +83,9 @@ export function LoginForm({
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Login</CardTitle>
+          <CardTitle className="text-2xl">Вход</CardTitle>
           <CardDescription>
-            Enter your email below to login to your account
+            Введите ваш email для входа в аккаунт
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -72,12 +104,12 @@ export function LoginForm({
               </div>
               <div className="grid gap-2">
                 <div className="flex items-center">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">Пароль</Label>
                   <Link
                     href="/auth/forgot-password"
                     className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
                   >
-                    Forgot your password?
+                    Забыли пароль?
                   </Link>
                 </div>
                 <Input
@@ -90,16 +122,16 @@ export function LoginForm({
               </div>
               {error && <p className="text-sm text-red-500">{error}</p>}
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Logging in..." : "Login"}
+                {isLoading ? "Вход..." : "Войти"}
               </Button>
             </div>
             <div className="mt-4 text-center text-sm">
-              Don&apos;t have an account?{" "}
+              Нет аккаунта?{" "}
               <Link
                 href="/auth/sign-up"
                 className="underline underline-offset-4"
               >
-                Sign up
+                Зарегистрироваться
               </Link>
             </div>
           </form>
