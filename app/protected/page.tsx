@@ -8,8 +8,10 @@ import { Calendar } from "@/components/calendar";
 import { DayDetailsCard } from "@/components/day-details-card";
 import { AddDutyCard } from "@/components/add-duty-card";
 import { TradersList } from "@/components/traders-list";
+import { AdminPanel } from "@/components/admin-panel";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 
 interface Duty {
   id: string;
@@ -23,6 +25,8 @@ interface Duty {
 interface TraderData {
   name_short?: string;
   admin?: boolean;
+  zametki?: boolean;
+  chat?: boolean;
 }
 
 export default function ProtectedPage() {
@@ -33,6 +37,7 @@ export default function ProtectedPage() {
   const [traderData, setTraderData] = useState<TraderData | null>(null);
   const [showAddDutyCard, setShowAddDutyCard] = useState(false);
   const [addDutyDate, setAddDutyDate] = useState<Date | null>(null);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -58,7 +63,7 @@ export default function ProtectedPage() {
         if (user.email) {
           const { data: traderRecord, error: traderError } = await supabase
             .from("traders")
-            .select("name_short, admin")
+            .select("name_short, admin, zametki, chat")
             .eq("mail", user.email)
             .single();
           
@@ -66,6 +71,8 @@ export default function ProtectedPage() {
             setTraderData({
               name_short: traderRecord.name_short || undefined,
               admin: traderRecord.admin || false,
+              zametki: traderRecord.zametki || false,
+              chat: traderRecord.chat || false,
             });
           }
         }
@@ -128,7 +135,10 @@ export default function ProtectedPage() {
                       : "Авторизованный пользователь"}
                 </p>
                 {traderData?.admin && (
-                  <p className="text-xs md:text-sm font-semibold text-red-500">
+                  <p
+                    className="text-xs md:text-sm font-semibold text-red-500 cursor-pointer hover:text-red-600 transition-colors"
+                    onClick={() => setShowAdminPanel(true)}
+                  >
                     АДМИН
                   </p>
                 )}
@@ -147,9 +157,20 @@ export default function ProtectedPage() {
       <div className="flex-1 w-full py-4 md:py-8">
         <Tabs defaultValue="calendar" className="w-full">
           <div className="container mx-auto px-4">
-            <TabsList className="mb-6">
+            <TabsList className={cn(
+              "mb-6 grid w-full",
+              traderData?.zametki === true && traderData?.chat === true ? "grid-cols-4" :
+              traderData?.zametki === true || traderData?.chat === true ? "grid-cols-3" :
+              "grid-cols-2"
+            )}>
               <TabsTrigger value="calendar">Календарь</TabsTrigger>
               <TabsTrigger value="traders">Трейдеры</TabsTrigger>
+              {traderData?.zametki === true && (
+                <TabsTrigger value="notes">Заметки</TabsTrigger>
+              )}
+              {traderData?.chat === true && (
+                <TabsTrigger value="chat">Чат</TabsTrigger>
+              )}
             </TabsList>
           </div>
           
@@ -163,6 +184,32 @@ export default function ProtectedPage() {
           <TabsContent value="traders">
             <TradersList isAdmin={traderData?.admin || false} />
           </TabsContent>
+
+          {traderData?.zametki === true && (
+            <TabsContent value="notes">
+              <div className="w-full max-w-4xl mx-auto p-4">
+                <div className="bg-card border rounded-lg shadow-sm p-4 md:p-6">
+                  <h2 className="text-xl md:text-2xl font-semibold mb-4">Заметки</h2>
+                  <p className="text-muted-foreground">
+                    Здесь будут ваши заметки...
+                  </p>
+                </div>
+              </div>
+            </TabsContent>
+          )}
+
+          {traderData?.chat === true && (
+            <TabsContent value="chat">
+              <div className="w-full max-w-4xl mx-auto p-4">
+                <div className="bg-card border rounded-lg shadow-sm p-4 md:p-6">
+                  <h2 className="text-xl md:text-2xl font-semibold mb-4">Чат</h2>
+                  <p className="text-muted-foreground">
+                    Здесь будет чат...
+                  </p>
+                </div>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 
@@ -195,6 +242,11 @@ export default function ProtectedPage() {
             setAddDutyDate(null);
           }}
         />
+      )}
+
+      {/* Панель администратора */}
+      {showAdminPanel && traderData?.admin && (
+        <AdminPanel onClose={() => setShowAdminPanel(false)} />
       )}
     </main>
   );
