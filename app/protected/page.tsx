@@ -9,6 +9,7 @@ import { DayDetailsCard } from "@/components/day-details-card";
 import { AddDutyCard } from "@/components/add-duty-card";
 import { TradersList } from "@/components/traders-list";
 import { AdminPanel } from "@/components/admin-panel";
+import { Chat } from "@/components/chat";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ interface Duty {
 }
 
 interface TraderData {
+  id?: number;
   name_short?: string;
   admin?: boolean;
   zametki?: boolean;
@@ -63,12 +65,13 @@ export default function ProtectedPage() {
         if (user.email) {
           const { data: traderRecord, error: traderError } = await supabase
             .from("traders")
-            .select("name_short, admin, zametki, chat")
+            .select("id, name_short, admin, zametki, chat")
             .eq("mail", user.email)
             .single();
           
           if (!traderError && traderRecord) {
             setTraderData({
+              id: traderRecord.id,
               name_short: traderRecord.name_short || undefined,
               admin: traderRecord.admin || false,
               zametki: traderRecord.zametki || false,
@@ -201,11 +204,12 @@ export default function ProtectedPage() {
           {traderData?.chat === true && (
             <TabsContent value="chat">
               <div className="w-full max-w-4xl mx-auto p-4">
-                <div className="bg-card border rounded-lg shadow-sm p-4 md:p-6">
+                <div className="bg-card border rounded-lg shadow-sm p-4 md:p-6 h-[calc(100vh-300px)]">
                   <h2 className="text-xl md:text-2xl font-semibold mb-4">Чат</h2>
-                  <p className="text-muted-foreground">
-                    Здесь будет чат...
-                  </p>
+                  <Chat
+                    userEmail={user?.email || null}
+                    currentTraderId={traderData?.id}
+                  />
                 </div>
               </div>
             </TabsContent>
