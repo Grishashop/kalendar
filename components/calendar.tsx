@@ -318,13 +318,25 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
 
   const days = getDaysInMonth();
   const today = new Date();
+  // Устанавливаем время на начало дня для корректного сравнения
+  today.setHours(0, 0, 0, 0);
+  
   const isToday = (date: Date | null) => {
     if (!date) return false;
+    const dateCopy = new Date(date);
+    dateCopy.setHours(0, 0, 0, 0);
     return (
-      date.getDate() === today.getDate() &&
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear()
+      dateCopy.getDate() === today.getDate() &&
+      dateCopy.getMonth() === today.getMonth() &&
+      dateCopy.getFullYear() === today.getFullYear()
     );
+  };
+
+  const isPastDate = (date: Date | null) => {
+    if (!date) return false;
+    const dateCopy = new Date(date);
+    dateCopy.setHours(0, 0, 0, 0);
+    return dateCopy < today;
   };
 
   return (
@@ -396,8 +408,10 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
               });
               
               const todayClass = isToday(date)
-                ? "bg-primary text-primary-foreground font-semibold"
-                : "bg-muted hover:bg-muted/80";
+                ? "border-2 border-red-500 text-foreground font-semibold bg-[#FFFFFF] dark:bg-[#A1A1A1]"
+                : isPastDate(date)
+                ? "border border-black dark:border-black bg-muted/30 dark:bg-muted/70 opacity-30 hover:bg-muted/30 dark:hover:bg-muted/70"
+                : "border border-black dark:border-black bg-muted/90 dark:bg-muted/90 hover:bg-muted/90 text-foreground";
 
               return (
                 <button
@@ -447,7 +461,7 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
                         <div
                           key={idx}
                           className={cn(
-                            "text-[10px] md:text-xs truncate px-1 py-0.5 rounded",
+                            "text-[10px] md:text-xs truncate px-1 py-0.5 rounded border border-black dark:border-black",
                             isToday(date)
                               ? dutyColor
                                 ? ""

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,6 +22,8 @@ interface Trader {
 
 interface DutyType {
   tip_dezursva_or_otdyh: string;
+  ves?: number;
+  color?: string;
 }
 
 interface AddDutyCardProps {
@@ -46,7 +48,7 @@ export function AddDutyCard({
   const [selectedDutyType, setSelectedDutyType] = useState<string>("");
   const [utverzdeno, setUtverzdeno] = useState(false);
   const [traders, setTraders] = useState<Trader[]>([]);
-  const [dutyTypes, setDutyTypes] = useState<string[]>([]);
+  const [dutyTypes, setDutyTypes] = useState<DutyType[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,18 +90,19 @@ export function AddDutyCard({
       // Загружаем типы дежурств
       const { data: dutyTypesData, error: dutyTypesError } = await supabase
         .from("typ_dezurstva")
-        .select("tip_dezursva_or_otdyh");
+        .select("tip_dezursva_or_otdyh, ves, color")
+        .order("ves", { ascending: true });
 
       if (!dutyTypesError && dutyTypesData) {
-        // Получаем уникальные значения
-        const uniqueTypes = Array.from(
-          new Set(
-            dutyTypesData
-              .map((item) => item.tip_dezursva_or_otdyh)
-              .filter((item) => item !== null && item !== undefined)
-          )
-        );
-        setDutyTypes(uniqueTypes);
+        // Фильтруем и сортируем по ves (чем меньше значение, тем выше)
+        const filteredTypes = dutyTypesData
+          .filter((item) => item.tip_dezursva_or_otdyh !== null && item.tip_dezursva_or_otdyh !== undefined)
+          .sort((a, b) => {
+            const vesA = a.ves ?? 999999;
+            const vesB = b.ves ?? 999999;
+            return vesA - vesB;
+          });
+        setDutyTypes(filteredTypes);
       }
 
       setIsLoadingData(false);
@@ -254,26 +257,91 @@ export function AddDutyCard({
                   {dutyTypes.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Типы дежурств не найдены</p>
                   ) : (
-                    dutyTypes.map((type, index) => (
-                      <div
-                        key={index}
-                        className={cn(
-                          "p-2 rounded-md cursor-pointer transition-colors",
-                          selectedDutyType === type
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted hover:bg-muted/80"
-                        )}
-                        onClick={() => setSelectedDutyType(type)}
-                      >
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            checked={selectedDutyType === type}
-                            onCheckedChange={() => setSelectedDutyType(type)}
-                          />
-                          <span className="text-sm font-medium">{type}</span>
+                    dutyTypes.map((type) => {
+                      // Используем tip_dezursva_or_otdyh как уникальный ключ
+                      const typeKey = type.tip_dezursva_or_otdyh;
+                      const isSelected = selectedDutyType === typeKey;
+                      const bgColor = type.color || "#f3f4f6";
+                      
+                      // Определяем цвет текста в зависимости от яркости фона
+                      const getTextColor = (bgColor: string) => {
+                        if (!bgColor || bgColor === "#f3f4f6") return undefined;
+                        try {
+                          // Простая проверка яркости цвета
+                          const hex = bgColor.replace('#', '');
+                          if (hex.length !== 6) return "#000000";
+                          const r = parseInt(hex.substr(0, 2), 16);
+                          const g = parseInt(hex.substr(2, 2), 16);
+                          const b = parseInt(hex.substr(4, 2), 16);
+                          const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                          return brightness > 128 ? "#000000" : "#ffffff";
+                        } catch {
+                          return "#000000";
+                        }
+                      };
+                      
+                      const textColor = getTextColor(bgColor);
+                      
+                      // Единая функция для выбора - всегда устанавливает выбор
+                      const handleTypeSelect = (e?: React.MouseEvent) => {
+                        if (e) {
+                          e.stopPropagation();
+                        }
+                        // Всегда устанавливаем выбранный тип, используя значение из typeKey
+                        // Используем setTimeout для гарантии обновления состояния
+                        setTimeout(() => {
+                          setSelectedDutyType(typeKey);
+                        }, 0);
+                      };
+                      
+                      return (
+                        <div
+                          key={typeKey}
+                          className={cn(
+                            "p-2 rounded-md cursor-pointer transition-all",
+                            isSelected && "ring-2 ring-primary ring-offset-1 shadow-md"
+                          )}
+                          style={{
+                            backgroundColor: bgColor,
+                            color: textColor,
+                          }}
+                          onClick={handleTypeSelect}
+                        >
+                          <div className="flex items-center space-x-2">
+                            <div
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setSelectedDutyType(typeKey);
+                              }}
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                readOnly
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  setSelectedDutyType(typeKey);
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setSelectedDutyType(typeKey);
+                                }}
+                              />
+                            </div>
+                            <span 
+                              className="text-sm font-medium"
+                              style={{
+                                color: textColor,
+                              }}
+                            >
+                              {typeKey}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
