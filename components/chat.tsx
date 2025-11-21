@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { X, Send, Reply, Copy, Check, Search, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -93,11 +94,29 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
           table: "chat_messages",
         },
         async (payload) => {
-          // Проверяем, что это новое сообщение (не то, которое мы только что отправили)
           const newId = payload.new.id;
-          if (lastMessageId !== null && newId <= lastMessageId) {
-            return; // Пропускаем старые сообщения
+          const newAuthorId = payload.new.author_id;
+          
+          // Пропускаем сообщения, которые мы только что отправили (проверяем по author_id)
+          if (currentTraderId && newAuthorId === currentTraderId) {
+            console.log("Skipping own message from Realtime:", newId);
+            return;
           }
+          
+          // Пропускаем старые сообщения
+          if (lastMessageId !== null && newId <= lastMessageId) {
+            console.log("Skipping old message from Realtime:", newId);
+            return;
+          }
+
+          // Проверяем, нет ли уже такого сообщения в списке
+          setMessages((prev) => {
+            if (prev.some((msg) => msg.id === newId)) {
+              console.log("Message already exists, skipping:", newId);
+              return prev;
+            }
+            return prev;
+          });
 
           // Загружаем полные данные нового сообщения
           const { data: newMessageData, error } = await supabase
@@ -134,11 +153,15 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
             }
             
             const formattedMessage = formatMessage(messageWithReply);
+            
+            // Дополнительная проверка перед добавлением
             setMessages((prev) => {
-              // Проверяем, нет ли уже такого сообщения
+              // Проверяем, нет ли уже такого сообщения по ID
               if (prev.some((msg) => msg.id === formattedMessage.id)) {
+                console.log("Message already in list, skipping:", formattedMessage.id);
                 return prev;
               }
+              console.log("Adding new message from Realtime:", formattedMessage.id);
               return [...prev, formattedMessage];
             });
             
@@ -147,7 +170,13 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
               showNotification(formattedMessage);
             }
             
-            setLastMessageId(newId);
+            // Обновляем lastMessageId только если это действительно новое сообщение
+            setLastMessageId((prevId) => {
+              if (prevId === null || newId > prevId) {
+                return newId;
+              }
+              return prevId;
+            });
           }
         }
       )
@@ -350,6 +379,137 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     }
   };
 
+  // Функция для преобразования таблицы в Markdown формат
+  const convertTableToMarkdown = (data: string[][]): string => {
+    if (data.length === 0) return "";
+    
+    const rows: string[] = [];
+    
+    // Заголовок таблицы
+    rows.push("| " + data[0].join(" | ") + " |");
+    
+    // Разделитель
+    rows.push("| " + data[0].map(() => "---").join(" | ") + " |");
+    
+    // Остальные строки
+    for (let i = 1; i < data.length; i++) {
+      rows.push("| " + data[i].join(" | ") + " |");
+    }
+    
+    return rows.join("\n");
+  };
+
+  // Обработчик вставки из буфера обмена
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    
+    const clipboardData = e.clipboardData;
+    const pastedText = clipboardData.getData('text/plain');
+    const pastedHtml = clipboardData.getData('text/html');
+    
+    // Пробуем обработать HTML таблицу (из Excel/Google Sheets)
+    if (pastedHtml && pastedHtml.includes('<table')) {
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(pastedHtml, 'text/html');
+        const table = doc.querySelector('table');
+        
+        if (table) {
+          const rows: string[][] = [];
+          const tableRows = table.querySelectorAll('tr');
+          
+          tableRows.forEach((tr) => {
+            const cells: string[] = [];
+            const tableCells = tr.querySelectorAll('td, th');
+            tableCells.forEach((cell) => {
+              cells.push(cell.textContent?.trim() || '');
+            });
+            if (cells.length > 0) {
+              rows.push(cells);
+            }
+          });
+          
+          if (rows.length > 0) {
+            const markdownTable = convertTableToMarkdown(rows);
+            const textarea = e.currentTarget;
+            const start = textarea.selectionStart || 0;
+            const end = textarea.selectionEnd || 0;
+            const newValue = 
+              newMessage.substring(0, start) + 
+              markdownTable + 
+              newMessage.substring(end);
+            setNewMessage(newValue);
+            
+            // Устанавливаем курсор после вставленного текста
+            setTimeout(() => {
+              textarea.selectionStart = textarea.selectionEnd = start + markdownTable.length;
+            }, 0);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("Error parsing HTML table:", error);
+      }
+    }
+    
+    // Пробуем обработать TSV (tab-separated values) - формат из Excel
+    if (pastedText.includes('\t')) {
+      const lines = pastedText.split('\n').filter(line => line.trim());
+      if (lines.length > 0) {
+        const rows: string[][] = [];
+        let maxCols = 0;
+        
+        lines.forEach((line) => {
+          const cells = line.split('\t').map(cell => cell.trim());
+          if (cells.length > 0) {
+            rows.push(cells);
+            maxCols = Math.max(maxCols, cells.length);
+          }
+        });
+        
+        // Нормализуем количество колонок (добавляем пустые ячейки если нужно)
+        rows.forEach(row => {
+          while (row.length < maxCols) {
+            row.push('');
+          }
+        });
+        
+        if (rows.length > 0 && maxCols > 1) {
+          const markdownTable = convertTableToMarkdown(rows);
+          const textarea = e.currentTarget;
+          const start = textarea.selectionStart || 0;
+          const end = textarea.selectionEnd || 0;
+          const newValue = 
+            newMessage.substring(0, start) + 
+            markdownTable + 
+            newMessage.substring(end);
+          setNewMessage(newValue);
+          
+          // Устанавливаем курсор после вставленного текста
+          setTimeout(() => {
+            textarea.selectionStart = textarea.selectionEnd = start + markdownTable.length;
+          }, 0);
+          return;
+        }
+      }
+    }
+    
+    // Если это не таблица, вставляем как обычный текст
+    const textarea = e.currentTarget;
+    const start = textarea.selectionStart || 0;
+    const end = textarea.selectionEnd || 0;
+    const newValue = 
+      newMessage.substring(0, start) + 
+      pastedText + 
+      newMessage.substring(end);
+    setNewMessage(newValue);
+    
+    // Устанавливаем курсор после вставленного текста
+    setTimeout(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + pastedText.length;
+    }, 0);
+  };
+
   const handleSend = async () => {
     if (!newMessage.trim()) {
       alert("Сообщение не может быть пустым");
@@ -436,14 +596,18 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
           const formattedMessage = formatMessage(messageWithReply);
           console.log("Formatted message after send:", formattedMessage);
           
+          // Обновляем lastMessageId ПЕРЕД добавлением сообщения, чтобы Realtime подписка его пропустила
+          setLastMessageId(formattedMessage.id);
+          
           setMessages((prev) => {
             // Проверяем, нет ли уже такого сообщения
             if (prev.some((msg) => msg.id === formattedMessage.id)) {
+              console.log("Message already in list after send, skipping:", formattedMessage.id);
               return prev;
             }
+            console.log("Adding message after send:", formattedMessage.id);
             return [...prev, formattedMessage];
           });
-          setLastMessageId(formattedMessage.id);
         } else {
           console.error("Error fetching full message:", fetchError);
           // Если не удалось загрузить полные данные, используем базовые данные
@@ -468,13 +632,17 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
               photo: authorData.photo,
             } : undefined,
           };
+          // Обновляем lastMessageId ПЕРЕД добавлением сообщения
+          setLastMessageId(basicMessage.id);
+          
           setMessages((prev) => {
             if (prev.some((msg) => msg.id === basicMessage.id)) {
+              console.log("Basic message already in list, skipping:", basicMessage.id);
               return prev;
             }
+            console.log("Adding basic message after send:", basicMessage.id);
             return [...prev, basicMessage];
           });
-          setLastMessageId(basicMessage.id);
         }
       }
       
@@ -553,8 +721,188 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     }
   };
 
+  // Функция для рендеринга Markdown в сообщениях (особенно таблиц)
+  let renderKey = 0;
+  
+  const renderInlineElements = (text: string) => {
+    const parts: (string | JSX.Element)[] = [];
+    let lastIndex = 0;
+
+    // Обработка инлайн кода `code`
+    const codeRegex = /`([^`]+)`/g;
+    let match;
+
+    while ((match = codeRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+      parts.push(
+        <code key={`code-${renderKey++}`} className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">
+          {match[1]}
+        </code>
+      );
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : [text];
+  };
+
+  const renderMarkdownMessage = (content: string) => {
+    if (!content) return null;
+
+    const lines = content.split('\n');
+    const elements: JSX.Element[] = [];
+    let i = 0;
+
+    const parseTableRow = (row: string) =>
+      row
+        .trim()
+        .replace(/^\||\|$/g, "")
+        .split("|")
+        .map(cell => cell.trim());
+
+    const isTableSeparator = (line: string) =>
+      /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*(?:\s*:?-{3,}:?\s*)?\|?\s*$/.test(line.trim());
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // Обработка таблиц
+      if (
+        line.includes("|") &&
+        i + 1 < lines.length &&
+        isTableSeparator(lines[i + 1])
+      ) {
+        const headerCells = parseTableRow(line);
+        let j = i + 2;
+        const bodyRows: string[][] = [];
+        while (j < lines.length && lines[j].includes("|") && lines[j].trim() !== "") {
+          bodyRows.push(parseTableRow(lines[j]));
+          j++;
+        }
+
+        elements.push(
+          <div key={`table-${renderKey++}`} className="overflow-x-auto my-2">
+            <table className="w-full border border-border text-sm">
+              <thead>
+                <tr className="bg-muted/60">
+                  {headerCells.map((cell, idx) => (
+                    <th key={`header-${idx}`} className="border border-border px-3 py-2 text-left font-semibold text-foreground">
+                      {renderInlineElements(cell)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, rowIdx) => (
+                  <tr key={`row-${rowIdx}`} className={rowIdx % 2 === 0 ? "bg-background" : "bg-muted/30"}>
+                    {row.map((cell, cellIdx) => (
+                      <td key={`cell-${rowIdx}-${cellIdx}`} className="border border-border px-3 py-2 align-top text-foreground">
+                        {renderInlineElements(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        i = j;
+        continue;
+      }
+
+      // Обычный текст
+      if (line.trim() === "") {
+        elements.push(<br key={`br-${renderKey++}`} />);
+        i++;
+        continue;
+      }
+
+      elements.push(
+        <span key={`text-${renderKey++}`}>
+          {renderInlineElements(line)}
+        </span>
+      );
+      
+      // Добавляем перенос строки после каждой строки, кроме последней
+      if (i < lines.length - 1) {
+        elements.push(<br key={`br-after-${renderKey++}`} />);
+      }
+      
+      i++;
+    }
+
+    return elements.length > 0 ? elements : [content];
+  };
+
+  // Функция для преобразования Markdown таблицы в TSV формат
+  const convertMarkdownTableToTSV = (markdownText: string): string | null => {
+    const lines = markdownText.split('\n');
+    const parseTableRow = (row: string) =>
+      row
+        .trim()
+        .replace(/^\||\|$/g, "")
+        .split("|")
+        .map(cell => cell.trim());
+
+    const isTableSeparator = (line: string) =>
+      /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*(?:\s*:?-{3,}:?\s*)?\|?\s*$/.test(line.trim());
+
+    // Ищем начало таблицы
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      
+      // Проверяем, является ли это началом таблицы
+      if (
+        line.includes("|") &&
+        i + 1 < lines.length &&
+        isTableSeparator(lines[i + 1])
+      ) {
+        const headerCells = parseTableRow(line);
+        let j = i + 2;
+        const bodyRows: string[][] = [];
+        
+        // Собираем все строки таблицы
+        while (j < lines.length && lines[j].includes("|") && lines[j].trim() !== "") {
+          bodyRows.push(parseTableRow(lines[j]));
+          j++;
+        }
+
+        if (bodyRows.length > 0) {
+          // Преобразуем в TSV формат
+          const tsvRows: string[] = [];
+          
+          // Заголовок (без разделителя)
+          tsvRows.push(headerCells.join('\t'));
+          
+          // Данные
+          bodyRows.forEach(row => {
+            tsvRows.push(row.join('\t'));
+          });
+          
+          return tsvRows.join('\n');
+        }
+      }
+      i++;
+    }
+    
+    return null;
+  };
+
   const handleCopy = async (message: ChatMessage) => {
-    const textToCopy = message.message;
+    let textToCopy = message.message;
+    
+    // Пробуем преобразовать Markdown таблицу в TSV
+    const tsvTable = convertMarkdownTableToTSV(message.message);
+    if (tsvTable) {
+      textToCopy = tsvTable;
+    }
+    
     try {
       // Проверяем доступность Clipboard API
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -857,7 +1205,13 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
                         "text-sm whitespace-pre-wrap break-words leading-relaxed",
                         myMessage ? "text-primary-foreground" : "text-foreground"
                       )}>
-                        {searchQuery ? highlightText(message.message, searchQuery) : message.message}
+                        {searchQuery ? (
+                          highlightText(message.message, searchQuery)
+                        ) : (
+                          <div className="space-y-1">
+                            {renderMarkdownMessage(message.message)}
+                          </div>
+                        )}
                       </div>
 
                       {/* Кнопки действий */}
@@ -958,13 +1312,13 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
 
         {/* Выбор адресата для упоминания */}
         {traders.length > 0 && (
-          <div className="mb-2">
+          <div className="mb-2 flex justify-end">
             <select
               value={mentionedTraderId || ""}
               onChange={(e) =>
                 setMentionedTraderId(e.target.value ? Number(e.target.value) : null)
               }
-              className="w-full px-3 py-1.5 border rounded-lg text-xs bg-background h-8"
+              className="w-auto min-w-[200px] max-w-[300px] px-3 py-1.5 border rounded-lg text-xs bg-background h-8"
             >
               <option value="">Упомянуть трейдера (необязательно)</option>
               {traders.map((trader) => (
@@ -979,17 +1333,19 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         {/* Поле ввода и кнопка отправки */}
         <div className="flex gap-2 items-end">
           <div className="flex-1 relative">
-            <Input
+            <Textarea
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
+              onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   handleSend();
                 }
               }}
-              placeholder="Введите сообщение... (Enter для отправки, Shift+Enter для новой строки)"
-              className="pr-12 min-h-[40px]"
+              placeholder="Введите сообщение... (Enter для отправки, Shift+Enter для новой строки). Можно вставлять таблицы из Excel!"
+              className="pr-12 min-h-[40px] resize-none"
+              rows={1}
             />
             {newMessage.length > 0 && (
               <div className="absolute right-2 bottom-1.5 text-[10px] text-muted-foreground">

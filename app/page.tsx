@@ -122,7 +122,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here`}
               <p className="text-xs md:text-sm text-muted-foreground mt-1">
                 Пользователь не авторизован (только просмотровый режим)
               </p>
-            </div>
+              </div>
 
             {/* Правая часть - авторизация */}
             <div className="flex items-center">

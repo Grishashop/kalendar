@@ -10,6 +10,7 @@ import { AddDutyCard } from "@/components/add-duty-card";
 import { TradersList } from "@/components/traders-list";
 import { AdminPanel } from "@/components/admin-panel";
 import { Chat } from "@/components/chat";
+import { Notes } from "@/components/notes";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -190,12 +191,12 @@ export default function ProtectedPage() {
 
           {traderData?.zametki === true && (
             <TabsContent value="notes">
-              <div className="w-full max-w-4xl mx-auto p-4">
+              <div className="w-full mx-auto p-4">
                 <div className="bg-card border rounded-lg shadow-sm p-4 md:p-6">
-                  <h2 className="text-xl md:text-2xl font-semibold mb-4">Заметки</h2>
-                  <p className="text-muted-foreground">
-                    Здесь будут ваши заметки...
-                  </p>
+                  <Notes
+                    currentTraderId={traderData?.id}
+                    userEmail={user?.email || null}
+                  />
                 </div>
               </div>
             </TabsContent>

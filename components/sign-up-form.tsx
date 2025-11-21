@@ -86,7 +86,7 @@ export function SignUpForm({
       if (data.session) {
         router.push("/protected");
       } else {
-        router.push("/auth/sign-up-success");
+      router.push("/auth/sign-up-success");
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Произошла ошибка";
