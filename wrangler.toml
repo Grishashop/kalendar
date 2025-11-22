@@ -1,7 +1,7 @@
-name = "lavochka-supabase2"
+name = "kalendar"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = ".vercel/output/static"
 
 [env.production]
-name = "lavochka-supabase2"
+name = "kalendar"
 

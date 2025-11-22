@@ -6,11 +6,17 @@
 1. Убедитесь, что ваш код загружен в GitHub репозиторий
 2. Убедитесь, что все изменения закоммичены и запушены
 
-### Шаг 2: Установка зависимостей
+### Шаг 2: Установка зависимостей и локальная проверка
 Выполните локально для проверки:
 ```bash
 npm install
+npm run pages:build
 ```
+
+**Проверка сборки:**
+- Убедитесь, что сборка проходит без ошибок
+- Проверьте, что папка `.vercel/output/static` создана
+- Для локального тестирования можно использовать: `npm run preview`
 
 ### Шаг 3: Настройка Cloudflare Pages
 
@@ -29,17 +35,20 @@ npm install
    - Выберите ветку (обычно `main` или `master`)
 
 4. **Настройте сборку:**
-   - **Framework preset:** `Next.js (Static HTML Export)` или `None`
+   - **Framework preset:** `Next.js` или `None`
    - **Build command:** `npm run pages:build`
    - **Build output directory:** `.vercel/output/static`
    - **Root directory:** `/` (оставьте пустым)
+   - **Node version:** `20` (или последняя LTS версия)
 
 5. **Добавьте переменные окружения:**
    В разделе **"Environment variables"** добавьте:
    - `NEXT_PUBLIC_SUPABASE_URL` = ваш Supabase URL
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = ваш Supabase Anon Key
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = ваш Supabase Publishable Key (или Anon Key)
    
-   **Важно:** Добавьте их для всех окружений (Production, Preview, Branch deploys)
+   **Важно:** 
+   - Добавьте их для всех окружений (Production, Preview, Branch deploys)
+   - Получить значения можно в настройках Supabase проекта: https://supabase.com/dashboard/project/_/settings/api
 
 6. **Сохраните и задеплойте:**
    - Нажмите **"Save and Deploy"**
@@ -70,7 +79,7 @@ npm run pages:build
 
 ### Шаг 4: Деплой
 ```bash
-wrangler pages deploy .vercel/output/static --project-name=lavochka-supabase2
+wrangler pages deploy .vercel/output/static --project-name=kalendar
 ```
 
 ## Проверка работы
