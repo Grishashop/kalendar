@@ -416,7 +416,7 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
               return (
                 <button
                   key={index}
-                  onClick={(e) => {
+                  onClick={() => {
                     const now = Date.now();
                     const isDoubleClick = 
                       lastClickTime?.date.getTime() === date.getTime() && 

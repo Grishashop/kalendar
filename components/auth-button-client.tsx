@@ -7,7 +7,7 @@ import { LogoutButton } from "./logout-button";
 import { useEffect, useState } from "react";
 
 export function AuthButtonClient() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

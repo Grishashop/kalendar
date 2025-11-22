@@ -11,6 +11,12 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      // Отключаем предупреждение о <img>, так как оптимизация изображений отключена для Cloudflare Pages
+      "@next/next/no-img-element": "off",
+    },
+  },
 ];
 
 export default eslintConfig;

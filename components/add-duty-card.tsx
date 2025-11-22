@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,7 +10,6 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +38,6 @@ export function AddDutyCard({
   date,
   userEmail,
   isAdmin,
-  currentTraderName,
   onSuccess,
   onCancel,
 }: AddDutyCardProps) {
@@ -133,7 +131,12 @@ export function AddDutyCard({
       const supabase = createClient();
       const dateStr = date.toISOString().split("T")[0];
 
-      const insertData: any = {
+      const insertData: {
+        date_dezurztva_or_otdyh: string;
+        traders: string;
+        tip_dezursva_or_otdyh: string;
+        utverzdeno?: boolean;
+      } = {
         date_dezurztva_or_otdyh: dateStr,
         traders: selectedTraderName, // Сохраняем name_short, а не ID
         tip_dezursva_or_otdyh: selectedDutyType,
@@ -317,16 +320,11 @@ export function AddDutyCard({
                             >
                               <Checkbox
                                 checked={isSelected}
-                                readOnly
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
+                                onCheckedChange={() => {
                                   setSelectedDutyType(typeKey);
                                 }}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
+                                onClick={(e) => {
                                   e.stopPropagation();
-                                  setSelectedDutyType(typeKey);
                                 }}
                               />
                             </div>

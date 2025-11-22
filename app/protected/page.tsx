@@ -36,7 +36,7 @@ export default function ProtectedPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDuties, setSelectedDuties] = useState<Duty[]>([]);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [traderData, setTraderData] = useState<TraderData | null>(null);
   const [showAddDutyCard, setShowAddDutyCard] = useState(false);
   const [addDutyDate, setAddDutyDate] = useState<Date | null>(null);

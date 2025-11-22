@@ -14,7 +14,6 @@ import { X, Edit, Trash2, Plus, Save } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { cn } from "@/lib/utils";
 
 interface Trader {
   id: string;
@@ -55,12 +54,13 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const [duties, setDuties] = useState<Duty[]>([]);
   const [dutyTypes, setDutyTypes] = useState<DutyType[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editingItem, setEditingItem] = useState<Trader | Duty | DutyType | Partial<Trader> | Partial<Duty> | Partial<DutyType> | null>(null);
   const [editingTable, setEditingTable] = useState<string | null>(null);
-  const editingItemIdRef = useRef<any>(null);
+  const editingItemIdRef = useRef<string | number | null>(null);
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const fetchData = async () => {
@@ -159,7 +159,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   };
 
-  const handleEdit = (item: any, table: string) => {
+  const handleEdit = (item: Trader | Duty | DutyType | Partial<Trader> | Partial<Duty> | Partial<DutyType>, table: string) => {
     console.log("=== handleEdit ===");
     console.log("Editing item:", item);
     console.log("Item ID:", item?.id, "Type:", typeof item?.id);
@@ -173,7 +173,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       editingItemIdRef.current = null;
     } else {
       // Сохраняем id в ref для надежности
-      editingItemIdRef.current = item.id;
+      editingItemIdRef.current = item.id ?? null;
       console.log("Saved ID to ref:", editingItemIdRef.current);
     }
     
@@ -181,7 +181,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     setEditingTable(table);
   };
 
-  const handleSaveWithData = async (data: any, table: string) => {
+  const handleSaveWithData = async (data: Trader | Duty | DutyType & { _originalTipDezursva?: string }, table: string) => {
     if (!data || !table) {
       console.error("Missing data or table:", { data, table });
       return;
@@ -207,11 +207,11 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
     
     // Для typ_dezurstva, если id отсутствует, используем tip_dezursva_or_otdyh как идентификатор
-    if (table === "typ_dezurstva" && !data.id && data.tip_dezursva_or_otdyh) {
+    if (table === "typ_dezurstva" && !data.id && 'tip_dezursva_or_otdyh' in data && data.tip_dezursva_or_otdyh) {
       console.log("Using tip_dezursva_or_otdyh as identifier for typ_dezurstva:", data.tip_dezursva_or_otdyh);
       // Сохраняем оригинальное значение tip_dezursva_or_otdyh для поиска записи
-      const originalTipDezursva = editingItem?.tip_dezursva_or_otdyh || data.tip_dezursva_or_otdyh;
-      data._originalTipDezursva = originalTipDezursva;
+      const originalTipDezursva = (editingItem && 'tip_dezursva_or_otdyh' in editingItem ? editingItem.tip_dezursva_or_otdyh : null) || (data.tip_dezursva_or_otdyh || null);
+      (data as DutyType & { _originalTipDezursva?: string })._originalTipDezursva = originalTipDezursva || undefined;
     }
 
     const supabase = createClient();
@@ -225,15 +225,15 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     const hasId = id !== undefined && id !== null && id !== "" && (typeof id === "number" ? id > 0 : true);
     
     // Копируем все данные кроме id, created_at и служебных полей (начинающихся с _)
-    const dataToSave: any = {};
+    const dataToSave: Record<string, unknown> = {};
     Object.keys(data).forEach((key) => {
       if (key !== "id" && key !== "created_at" && !key.startsWith("_")) {
-        dataToSave[key] = data[key];
+        dataToSave[key] = (data as unknown as Record<string, unknown>)[key];
       }
     });
     
     // Сохраняем _originalTipDezursva отдельно для typ_dezurstva
-    const originalTipDezursva = data._originalTipDezursva;
+    const originalTipDezursva = ('_originalTipDezursva' in data ? data._originalTipDezursva : undefined);
     
     console.log("=== handleSaveWithData processing ===");
     console.log("Original data:", data);
@@ -245,7 +245,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     console.log("DataToSave values:", Object.values(dataToSave));
     
     // Очищаем от undefined, но оставляем null, false, 0, пустые строки
-    const cleanData: any = {};
+    const cleanData: Record<string, unknown> = {};
     Object.keys(dataToSave).forEach((key) => {
       const value = dataToSave[key];
       // Исключаем undefined, id, и служебные поля (начинающиеся с _)
@@ -323,11 +323,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
   };
 
-  const handleSave = async () => {
-    // Эта функция больше не используется напрямую, но оставляем для совместимости
-    if (!editingItem || !editingTable) return;
-    await handleSaveWithData(editingItem, editingTable);
-  };
 
   const renderTable = () => {
     if (loading) {
@@ -582,9 +577,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           <div className="flex-1 overflow-y-auto pr-4">
             {editingItem && editingTable ? (
               <EditForm
-                item={editingItem}
+                item={editingItem as Trader | Duty | DutyType}
                 table={editingTable}
-                onSave={async (data: any) => {
+                onSave={async (data: Trader | Duty | DutyType & { _originalTipDezursva?: string }) => {
                   // Проверяем, что данные не пустые
                   if (!data || Object.keys(data).length === 0) {
                     console.error("ERROR: Data is empty in onSave!");
@@ -606,16 +601,16 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                     idToUse = editingItemIdRef.current;
                   }
                   // Для typ_dezurstva, если id отсутствует, используем tip_dezursva_or_otdyh
-                  else if (editingTable === "typ_dezurstva" && editingItem?.tip_dezursva_or_otdyh) {
+                  else if (editingTable === "typ_dezurstva" && editingItem && 'tip_dezursva_or_otdyh' in editingItem && editingItem.tip_dezursva_or_otdyh) {
                     idToUse = editingItem.tip_dezursva_or_otdyh;
                     console.log("Using tip_dezursva_or_otdyh as identifier for typ_dezurstva:", idToUse);
                   }
                   
                   if (idToUse !== null) {
-                    data.id = idToUse;
+                    data.id = String(idToUse);
                     // Сохраняем оригинальное значение tip_dezursva_or_otdyh для typ_dezurstva
-                    if (editingTable === "typ_dezurstva" && editingItem?.tip_dezursva_or_otdyh) {
-                      data._originalTipDezursva = editingItem.tip_dezursva_or_otdyh;
+                    if (editingTable === "typ_dezurstva" && editingItem && 'tip_dezursva_or_otdyh' in editingItem && editingItem.tip_dezursva_or_otdyh) {
+                      (data as DutyType & { _originalTipDezursva?: string })._originalTipDezursva = editingItem.tip_dezursva_or_otdyh;
                     }
                     console.log("✓ ID added to data:", idToUse, "Type:", typeof idToUse);
                   } else {
@@ -646,10 +641,17 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   );
 }
 
-function EditForm({ item, table, onSave, onCancel }: any) {
+interface EditFormProps {
+  item: Trader | Duty | DutyType;
+  table: string;
+  onSave: (data: Trader | Duty | DutyType & { _originalTipDezursva?: string }) => Promise<void>;
+  onCancel: () => void;
+}
+
+function EditForm({ item, table, onSave, onCancel }: EditFormProps) {
   // Сохраняем все поля из item, включая id для редактирования
   // Убеждаемся, что все необходимые поля присутствуют
-  const initialData: any = { ...item };
+  const initialData: Record<string, unknown> = { ...item };
   // Удаляем только created_at, остальное сохраняем
   delete initialData.created_at;
   
@@ -692,7 +694,7 @@ function EditForm({ item, table, onSave, onCancel }: any) {
     console.log("FormData updated:", formData);
   }, [formData]);
 
-  const handleChange = (field: string, value: any) => {
+  const handleChange = (field: string, value: unknown) => {
     const newFormData = { ...formData, [field]: value };
     console.log(`handleChange: ${field} =`, value, "New formData:", newFormData);
     setFormData(newFormData);
@@ -707,7 +709,7 @@ function EditForm({ item, table, onSave, onCancel }: any) {
     
     // Передаем все данные из формы, включая id если он был
     // Используем прямое копирование всех полей из formData
-    const dataToSave: any = { ...formData };
+    const dataToSave: Record<string, unknown> = { ...formData };
     
     // Удаляем created_at если есть
     delete dataToSave.created_at;
@@ -797,7 +799,7 @@ function EditForm({ item, table, onSave, onCancel }: any) {
       return;
     }
     
-    onSave(dataToSave);
+    onSave(dataToSave as unknown as Trader | Duty | DutyType & { _originalTipDezursva?: string });
   };
 
   const getFieldLabel = (key: string): string => {
@@ -848,13 +850,13 @@ function EditForm({ item, table, onSave, onCancel }: any) {
                 <div className="flex items-center gap-2">
                   <Input
                     type="color"
-                    value={formData[key] || "#000000"}
+                    value={String(formData[key] || "#000000")}
                     onChange={(e) => handleChange(key, e.target.value)}
                     className="w-20 h-10"
                   />
                   <Input
                     type="text"
-                    value={formData[key] || ""}
+                    value={String(formData[key] || "")}
                     onChange={(e) => handleChange(key, e.target.value)}
                     placeholder="#000000"
                   />
@@ -862,20 +864,20 @@ function EditForm({ item, table, onSave, onCancel }: any) {
               ) : key === "date_dezurztva_or_otdyh" ? (
                 <Input
                   type="date"
-                  value={formData[key] || ""}
+                  value={String(formData[key] || "")}
                   onChange={(e) => handleChange(key, e.target.value)}
                 />
               ) : key === "ves" ? (
                 <Input
                   type="number"
-                  value={formData[key] !== undefined && formData[key] !== null ? formData[key] : ""}
+                  value={String(formData[key] !== undefined && formData[key] !== null ? formData[key] : "")}
                   onChange={(e) => handleChange(key, e.target.value === "" ? "" : parseInt(e.target.value, 10) || 0)}
                   placeholder="Введите вес"
                 />
               ) : (
                 <Input
                   type="text"
-                  value={formData[key] || ""}
+                  value={String(formData[key] || "")}
                   onChange={(e) => handleChange(key, e.target.value)}
                   placeholder={`Введите ${getFieldLabel(key).toLowerCase()}`}
                 />

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AddTraderForm } from "@/components/add-trader-form";
 import { TraderDetailsCard } from "@/components/trader-details-card";
@@ -36,7 +35,6 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userExists, setUserExists] = useState<boolean>(false);
-  const [userCanDuty, setUserCanDuty] = useState<boolean>(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedTrader, setSelectedTrader] = useState<TraderDetails | null>(null);
   const [editingTrader, setEditingTrader] = useState<TraderDetails | null>(null);
@@ -84,10 +82,8 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
           userExistsInTable = true;
           userCanDutyValue = userData.mozno_dezurit === true;
           setUserExists(true);
-          setUserCanDuty(true);
         } else {
           setUserExists(false);
-          setUserCanDuty(false);
         }
       }
 
@@ -157,7 +153,6 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
       
       if (userData) {
         const canDuty = userData.mozno_dezurit === true;
-        setUserCanDuty(canDuty);
         
         // Если пользователь не может дежурить - показываем только его данные
         if (!canDuty) {
@@ -272,7 +267,7 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
             {traders.map((trader) => (
               <div
                 key={trader.id}
-                onClick={async (e) => {
+                onClick={async () => {
                   const now = Date.now();
                   const isDoubleClick = 
                     lastClickTime?.id === trader.id && 

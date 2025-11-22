@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +63,15 @@ export function EditTraderForm({
 
     try {
       const supabase = createClient();
-      const updateData: any = {
+      const updateData: {
+        name: string;
+        name_short: string;
+        photo: string | null;
+        mail: string;
+        phone: string | null;
+        mozno_dezurit?: boolean;
+        admin?: boolean;
+      } = {
         name,
         name_short: nameShort,
         photo: photo || null,

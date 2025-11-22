@@ -197,6 +197,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     return () => {
       supabase.removeChannel(channel);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail]);
 
   useEffect(() => {
@@ -299,7 +300,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     setLoading(false);
   };
 
-  const formatMessage = (msg: any): ChatMessage => {
+  const formatMessage = (msg: Record<string, unknown>): ChatMessage => {
     // Обрабатываем случай, когда author может быть массивом или объектом
     let author = null;
     if (msg.author) {
@@ -331,13 +332,13 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     }
 
     return {
-      id: msg.id,
-      author_id: msg.author_id,
-      message: msg.message,
-      reply_to_id: msg.reply_to_id,
-      mentioned_trader_id: msg.mentioned_trader_id,
-      created_at: msg.created_at,
-      updated_at: msg.updated_at,
+      id: Number(msg.id) || 0,
+      author_id: Number(msg.author_id) || 0,
+      message: String(msg.message || ""),
+      reply_to_id: msg.reply_to_id ? Number(msg.reply_to_id) : undefined,
+      mentioned_trader_id: msg.mentioned_trader_id ? Number(msg.mentioned_trader_id) : undefined,
+      created_at: String(msg.created_at || ""),
+      updated_at: msg.updated_at ? String(msg.updated_at) : undefined,
       author: author ? {
         name_short: author.name_short,
         mail: author.mail,
@@ -524,7 +525,12 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
 
     const supabase = createClient();
     
-    const messageData: any = {
+    const messageData: {
+      author_id: number;
+      message: string;
+      reply_to_id?: number;
+      mentioned_trader_id?: number;
+    } = {
       author_id: currentTraderId,
       message: newMessage.trim(),
     };
@@ -725,7 +731,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
   let renderKey = 0;
   
   const renderInlineElements = (text: string) => {
-    const parts: (string | JSX.Element)[] = [];
+    const parts: (string | React.ReactElement)[] = [];
     let lastIndex = 0;
 
     // Обработка инлайн кода `code`
@@ -755,7 +761,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     if (!content) return null;
 
     const lines = content.split('\n');
-    const elements: JSX.Element[] = [];
+    const elements: React.ReactElement[] = [];
     let i = 0;
 
     const parseTableRow = (row: string) =>

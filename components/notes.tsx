@@ -19,7 +19,6 @@ import {
   X, 
   Save,
   FileText,
-  MoreVertical
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -54,7 +53,7 @@ interface NotesProps {
   userEmail: string | null;
 }
 
-export function Notes({ currentTraderId, userEmail }: NotesProps) {
+export function Notes({ currentTraderId }: NotesProps) {
   const [folders, setFolders] = useState<NoteFolder[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
@@ -92,12 +91,14 @@ export function Notes({ currentTraderId, userEmail }: NotesProps) {
       fetchFolders();
       fetchNotes();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTraderId]);
 
   useEffect(() => {
     if (currentTraderId) {
       fetchNotes();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFolderId, currentTraderId]);
 
   const fetchFolders = async () => {
@@ -146,7 +147,7 @@ export function Notes({ currentTraderId, userEmail }: NotesProps) {
     if (error) {
       console.error("Error fetching notes:", error);
     } else {
-      const formattedNotes = (data || []).map((note: any) => ({
+      const formattedNotes = (data || []).map((note: Note & { folder?: { name?: string; color?: string } }) => ({
         ...note,
         folder_name: note.folder?.name,
         folder_color: note.folder?.color,
@@ -302,7 +303,7 @@ export function Notes({ currentTraderId, userEmail }: NotesProps) {
     const supabase = createClient();
     
     // Используем функцию для мягкого удаления (обходит RLS проблемы)
-    const { data: rpcData, error: rpcError } = await supabase
+    const { error: rpcError } = await supabase
       .rpc('soft_delete_note', { note_id: noteId });
 
     if (rpcError) {
@@ -311,7 +312,7 @@ export function Notes({ currentTraderId, userEmail }: NotesProps) {
       
       // Если функция не существует, пробуем прямой UPDATE
       if (rpcError.code === '42883') {
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from("notes")
           .update({ deleted_at: new Date().toISOString() })
           .eq("id", noteId)
@@ -629,8 +630,7 @@ export function Notes({ currentTraderId, userEmail }: NotesProps) {
 
   // Функция для обработки инлайн элементов (код, жирный, курсив)
   const renderInlineElements = (text: string) => {
-    const parts: (string | JSX.Element)[] = [];
-    let currentIndex = 0;
+    const parts: (string | React.ReactElement)[] = [];
 
     // Обработка инлайн кода `code`
     const codeRegex = /`([^`]+)`/g;
@@ -663,7 +663,7 @@ export function Notes({ currentTraderId, userEmail }: NotesProps) {
     if (!content) return null;
 
     const lines = content.split('\n');
-    const elements: JSX.Element[] = [];
+    const elements: React.ReactElement[] = [];
     let i = 0;
 
     const parseTableRow = (row: string) =>

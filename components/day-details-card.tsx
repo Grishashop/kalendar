@@ -22,7 +22,6 @@ interface Duty {
   tip_dezursva_or_otdyh?: string;
   utverzdeno?: boolean;
   created_at?: string;
-  [key: string]: any;
 }
 
 interface DayDetailsCardProps {
@@ -48,7 +47,6 @@ export function DayDetailsCard({
   date,
   traders,
   onClose,
-  userEmail,
   isAdmin = false,
   currentTraderName,
   onDelete,
