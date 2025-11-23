@@ -1,4 +1,8 @@
-# Инструкция по деплою на Cloudflare Pages
+# Инструкция по деплою на Vercel
+
+## Подготовка проекта
+
+Проект уже настроен для деплоя на Vercel. Vercel автоматически определяет Next.js проекты и использует правильные настройки сборки.
 
 ## Вариант 1: Через GitHub (Рекомендуется)
 
@@ -6,109 +10,130 @@
 1. Убедитесь, что ваш код загружен в GitHub репозиторий
 2. Убедитесь, что все изменения закоммичены и запушены
 
-### Шаг 2: Установка зависимостей и локальная проверка
+### Шаг 2: Локальная проверка сборки
 Выполните локально для проверки:
 ```bash
 npm install
-npm run pages:build
+npm run build
 ```
 
 **Проверка сборки:**
 - Убедитесь, что сборка проходит без ошибок
-- Проверьте, что папка `.vercel/output/static` создана
-- Для локального тестирования можно использовать: `npm run preview`
+- Проверьте, что нет ошибок TypeScript или ESLint
 
-### Шаг 3: Настройка Cloudflare Pages
+### Шаг 3: Настройка Vercel
 
-1. **Зайдите на Cloudflare Dashboard:**
-   - Откройте https://dash.cloudflare.com/
-   - Войдите в аккаунт (можно создать бесплатный)
+1. **Зайдите на Vercel:**
+   - Откройте https://vercel.com/
+   - Войдите в аккаунт (можно создать бесплатный через GitHub)
 
 2. **Создайте новый проект:**
-   - Перейдите в раздел **"Workers & Pages"** → **"Pages"**
-   - Нажмите **"Create a project"**
-   - Выберите **"Connect to Git"**
+   - Нажмите **"Add New..."** → **"Project"**
+   - Импортируйте ваш GitHub репозиторий
+   - Выберите репозиторий `kalendar` (или ваш репозиторий)
 
-3. **Подключите GitHub:**
-   - Авторизуйтесь через GitHub
-   - Выберите ваш репозиторий
-   - Выберите ветку (обычно `main` или `master`)
+3. **Настройка проекта:**
+   - **Framework Preset:** Vercel автоматически определит `Next.js`
+   - **Root Directory:** `/` (оставьте пустым, если проект в корне)
+   - **Build Command:** `npm run build` (установится автоматически)
+   - **Output Directory:** `.next` (установится автоматически)
+   - **Install Command:** `npm install` (установится автоматически)
 
-4. **Настройте сборку:**
-   - **Framework preset:** `Next.js` или `None`
-   - **Build command:** `npm run pages:build`
-   - **Build output directory:** `.vercel/output/static`
-   - **Root directory:** `/` (оставьте пустым)
-   - **Node version:** `20` (или последняя LTS версия)
-
-5. **Добавьте переменные окружения:**
-   В разделе **"Environment variables"** добавьте:
+4. **Добавьте переменные окружения:**
+   В разделе **"Environment Variables"** добавьте:
    - `NEXT_PUBLIC_SUPABASE_URL` = ваш Supabase URL
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = ваш Supabase Publishable Key (или Anon Key)
    
    **Важно:** 
-   - Добавьте их для всех окружений (Production, Preview, Branch deploys)
+   - Добавьте их для всех окружений (Production, Preview, Development)
    - Получить значения можно в настройках Supabase проекта: https://supabase.com/dashboard/project/_/settings/api
+   - После добавления переменных окружения нужно пересобрать проект
 
-6. **Сохраните и задеплойте:**
-   - Нажмите **"Save and Deploy"**
-   - Дождитесь завершения сборки (обычно 2-5 минут)
+5. **Деплой:**
+   - Нажмите **"Deploy"**
+   - Дождитесь завершения сборки (обычно 1-3 минуты)
+   - После успешного деплоя вы получите URL вида: `your-project.vercel.app`
 
 ### Шаг 4: Настройка домена (опционально)
-- После успешного деплоя вы получите URL вида: `your-project.pages.dev`
-- В настройках проекта можно добавить свой домен
+- После успешного деплоя в настройках проекта можно добавить свой домен
+- Vercel автоматически настроит SSL сертификат
 
-## Вариант 2: Через Wrangler CLI
+## Вариант 2: Через Vercel CLI
 
-### Шаг 1: Установка Wrangler
+### Шаг 1: Установка Vercel CLI
 ```bash
-npm install -g wrangler
+npm install -g vercel
 ```
 
 ### Шаг 2: Авторизация
 ```bash
-wrangler login
-```
-Откроется браузер для авторизации в Cloudflare.
-
-### Шаг 3: Сборка проекта
-```bash
-npm install
-npm run pages:build
+vercel login
 ```
 
-### Шаг 4: Деплой
+### Шаг 3: Деплой
 ```bash
-wrangler pages deploy .vercel/output/static --project-name=kalendar
+# Первый деплой (интерактивный)
+vercel
+
+# Последующие деплои
+vercel --prod
+```
+
+### Шаг 4: Настройка переменных окружения через CLI
+```bash
+vercel env add NEXT_PUBLIC_SUPABASE_URL
+vercel env add NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+```
+
+После добавления переменных окружения нужно пересобрать проект:
+```bash
+vercel --prod
 ```
 
 ## Проверка работы
 
 После деплоя проверьте:
-1. Откройте URL вашего проекта
+1. Откройте URL вашего проекта (например, `your-project.vercel.app`)
 2. Проверьте, что страница загружается
 3. Проверьте авторизацию
 4. Проверьте работу всех функций
+5. Проверьте работу календаря и добавления дежурств
 
 ## Решение проблем
 
 ### Ошибка при сборке
 - Убедитесь, что все зависимости установлены
 - Проверьте, что переменные окружения настроены
-- Проверьте логи сборки в Cloudflare Dashboard
+- Проверьте логи сборки в Vercel Dashboard
+- Убедитесь, что нет ошибок TypeScript или ESLint
 
 ### Ошибки при работе приложения
 - Проверьте, что переменные окружения `NEXT_PUBLIC_*` правильно настроены
-- Убедитесь, что Supabase доступен из России
+- Убедитесь, что Supabase доступен
 - Проверьте консоль браузера на наличие ошибок
+- Проверьте логи функций в Vercel Dashboard
 
-### Проблемы с SSR
-- Cloudflare Pages поддерживает Next.js, но некоторые функции могут работать по-другому
-- Если есть проблемы с SSR, можно использовать статическую генерацию
+### Проблемы с авторизацией
+- Убедитесь, что в Supabase настроены правильные URL для редиректов
+- В настройках Supabase проекта добавьте ваш Vercel URL в список разрешенных URL:
+  - Authentication → URL Configuration → Site URL: `https://your-project.vercel.app`
+  - Authentication → URL Configuration → Redirect URLs: `https://your-project.vercel.app/**`
+
+### Проблемы с изображениями
+- Vercel автоматически оптимизирует изображения Next.js
+- Убедитесь, что изображения находятся в папке `public/`
+- Для внешних изображений настройте `next.config.ts` с доменами
+
+## Автоматические деплои
+
+Vercel автоматически:
+- Деплоит каждую ветку как Preview деплой
+- Деплоит `main`/`master` ветку в Production
+- Создает уникальный URL для каждого коммита
+- Отправляет уведомления о статусе деплоя
 
 ## Полезные ссылки
 
-- [Cloudflare Pages Docs](https://developers.cloudflare.com/pages/)
-- [Next.js on Cloudflare Pages](https://developers.cloudflare.com/pages/framework-guides/nextjs/)
-- [@cloudflare/next-on-pages](https://github.com/cloudflare/next-on-pages)
-
+- [Vercel Documentation](https://vercel.com/docs)
+- [Next.js on Vercel](https://vercel.com/docs/frameworks/nextjs)
+- [Environment Variables](https://vercel.com/docs/concepts/projects/environment-variables)

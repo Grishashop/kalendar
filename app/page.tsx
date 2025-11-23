@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { AuthButtonClient } from "@/components/auth-button-client";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Calendar } from "@/components/calendar";
@@ -70,7 +71,16 @@ export default function Home() {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center p-4">
         <div className="max-w-2xl w-full space-y-4">
-          <h1 className="text-2xl font-bold text-center">Lavochka2.0</h1>
+          <div className="flex justify-center">
+            <Image
+              src="/logo.png"
+              alt="Lavochka 2.0"
+              width={200}
+              height={67}
+              className="h-12 w-auto object-contain"
+              priority
+            />
+          </div>
           <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-6 space-y-4">
             <h2 className="text-lg font-semibold text-destructive">
               Требуются переменные окружения Supabase
@@ -111,21 +121,28 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here`}
       <header className="w-full border-b border-b-foreground/10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-40">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            {/* Левая часть - переключатель темы */}
-            <div className="flex items-center">
-              <ThemeSwitcher />
+            {/* Левая часть - логотип */}
+            <div className="flex items-center gap-3">
+              <Image
+                src="/logo.png"
+                alt="Lavochka 2.0"
+                width={120}
+                height={40}
+                className="h-8 w-auto object-contain"
+                priority
+              />
             </div>
 
-            {/* Центр - название */}
+            {/* Центр - описание */}
             <div className="flex-1 flex flex-col items-center justify-center text-center">
-              <h1 className="text-xl md:text-2xl font-bold">Lavochka2.0</h1>
-              <p className="text-xs md:text-sm text-muted-foreground mt-1">
+              <p className="text-xs md:text-sm text-muted-foreground">
                 Пользователь не авторизован (только просмотровый режим)
               </p>
-              </div>
+            </div>
 
-            {/* Правая часть - авторизация */}
-            <div className="flex items-center">
+            {/* Правая часть - переключатель темы и авторизация */}
+            <div className="flex items-center gap-3">
+              <ThemeSwitcher />
               <AuthButtonClient />
             </div>
           </div>

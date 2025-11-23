@@ -15,7 +15,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 
 interface TraderDetails {
-  id: string;
+  id: string | number;
   name?: string;
   name_short?: string;
   photo?: string;
@@ -104,7 +104,14 @@ export function EditTraderForm({
   };
 
   const handleDelete = async () => {
-    if (!confirm("Вы уверены, что хотите удалить этого трейдера?")) {
+    const confirmMessage = "Вы уверены, что хотите удалить этого трейдера?\n\n" +
+      "ВНИМАНИЕ: Будут удалены все связанные записи:\n" +
+      "- Все дежурства этого трейдера\n" +
+      "- Все заметки и папки\n" +
+      "- Все сообщения в чате\n\n" +
+      "Это действие нельзя отменить!";
+    
+    if (!confirm(confirmMessage)) {
       return;
     }
 
@@ -113,12 +120,52 @@ export function EditTraderForm({
 
     try {
       const supabase = createClient();
+      
+      // Преобразуем id в число, если это строка
+      const traderId = typeof trader.id === 'string' ? parseInt(trader.id, 10) : trader.id;
+      
+      // Проверяем, что id валидный
+      if (isNaN(traderId as number)) {
+        throw new Error("Неверный ID трейдера");
+      }
+
+      // Получаем имя трейдера для удаления связанных записей в dezurstva
+      const traderNameShort = trader.name_short;
+
+      // Шаг 1: Удаляем все дежурства этого трейдера (dezurstva использует TEXT поле traders)
+      if (traderNameShort) {
+        const { error: deleteDutiesError } = await supabase
+          .from("dezurstva")
+          .delete()
+          .eq("traders", traderNameShort);
+
+        if (deleteDutiesError) {
+          console.error("Error deleting duties:", deleteDutiesError);
+          // Не прерываем выполнение, продолжаем удаление трейдера
+        }
+      }
+
+      // Шаг 2: Удаляем трейдера
+      // Заметки, папки и сообщения удалятся автоматически благодаря ON DELETE CASCADE
       const { error: deleteError } = await supabase
         .from("traders")
         .delete()
-        .eq("id", trader.id);
+        .eq("id", traderId);
 
       if (deleteError) {
+        console.error("Delete error details:", deleteError);
+        console.error("Trader ID:", traderId, "Type:", typeof traderId);
+        
+        // Проверяем специфичные ошибки
+        if (deleteError.code === '23503' || 
+            deleteError.message?.includes("foreign key") || 
+            deleteError.message?.includes("violates foreign key")) {
+          throw new Error(
+            "Нельзя удалить трейдера, так как он связан с другими записями. " +
+            "Попробуйте удалить связанные записи вручную через панель администратора."
+          );
+        }
+        
         throw deleteError;
       }
 
@@ -126,7 +173,25 @@ export function EditTraderForm({
         onDelete();
       }
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : "Произошла ошибка при удалении";
+      console.error("Delete error:", err);
+      let errorMessage = "Произошла ошибка при удалении";
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err && typeof err === 'object' && 'message' in err) {
+        errorMessage = String(err.message);
+      }
+      
+      // Проверяем специфичные ошибки Supabase
+      if (errorMessage.includes("foreign key") || errorMessage.includes("violates foreign key")) {
+        errorMessage = "Нельзя удалить трейдера, так как он связан с другими записями. " +
+          "Попробуйте удалить связанные записи вручную через панель администратора.";
+      } else if (errorMessage.includes("permission denied") || errorMessage.includes("policy")) {
+        errorMessage = "У вас нет прав для удаления этого трейдера. Проверьте настройки безопасности в Supabase.";
+      } else if (errorMessage.includes("column") && errorMessage.includes("does not exist")) {
+        errorMessage = "Ошибка структуры базы данных. Проверьте, что таблица traders существует и имеет колонку id.";
+      }
+      
       setError(errorMessage);
     } finally {
       setIsLoading(false);

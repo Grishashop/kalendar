@@ -1,10 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Disable image optimization for Cloudflare Pages
-  images: {
-    unoptimized: true,
-  },
+  // Vercel автоматически оптимизирует изображения
+  // Не нужно отключать оптимизацию для Vercel
 };
 
 export default nextConfig;

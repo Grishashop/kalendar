@@ -285,49 +285,26 @@ export function AddDutyCard({
                       
                       const textColor = getTextColor(bgColor);
                       
-                      // Единая функция для выбора - всегда устанавливает выбор
-                      const handleTypeSelect = (e?: React.MouseEvent) => {
-                        if (e) {
-                          e.stopPropagation();
-                        }
-                        // Всегда устанавливаем выбранный тип, используя значение из typeKey
-                        // Используем setTimeout для гарантии обновления состояния
-                        setTimeout(() => {
-                          setSelectedDutyType(typeKey);
-                        }, 0);
-                      };
-                      
                       return (
                         <div
                           key={typeKey}
-                          className={cn(
-                            "p-2 rounded-md cursor-pointer transition-all",
-                            isSelected && "ring-2 ring-primary ring-offset-1 shadow-md"
-                          )}
+                          className="p-2 rounded-md cursor-pointer transition-all"
                           style={{
                             backgroundColor: bgColor,
                             color: textColor,
+                            boxShadow: isSelected ? '0 0 0 2px hsl(var(--primary))' : 'none',
                           }}
-                          onClick={handleTypeSelect}
+                          onClick={() => {
+                            setSelectedDutyType(typeKey);
+                          }}
                         >
                           <div className="flex items-center space-x-2">
-                            <div
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => {
                                 setSelectedDutyType(typeKey);
                               }}
-                            >
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() => {
-                                  setSelectedDutyType(typeKey);
-                                }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                }}
-                              />
-                            </div>
+                            />
                             <span 
                               className="text-sm font-medium"
                               style={{
