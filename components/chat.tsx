@@ -67,6 +67,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     }
   }, [userEmail, currentTraderId]);
 
+  // Загрузка данных и настройка уведомлений
   useEffect(() => {
     // Запрашиваем разрешение на уведомления
     if (typeof window !== "undefined" && "Notification" in window) {
@@ -81,124 +82,188 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
 
     fetchTraders();
     fetchMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userEmail, currentTraderId]);
 
-    // Подписываемся на новые сообщения через Supabase Realtime
+  // Отдельный useEffect для подписки на Realtime изменения
+  useEffect(() => {
+    // Не подписываемся, если пользователь не авторизован
+    if (!userEmail) {
+      console.log("Skipping Realtime subscription: user not authenticated");
+      return;
+    }
+
     const supabase = createClient();
+    
+    // Создаем уникальное имя канала для избежания конфликтов
+    const channelName = `chat_messages_changes_${Date.now()}`;
     const channel = supabase
-      .channel("chat_messages_changes")
+      .channel(channelName)
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*", // Слушаем все события: INSERT, UPDATE, DELETE
           schema: "public",
           table: "chat_messages",
         },
         async (payload) => {
-          const newId = payload.new.id;
-          const newAuthorId = payload.new.author_id;
+          console.log("Realtime event received:", payload.eventType, payload);
           
-          // Пропускаем сообщения, которые мы только что отправили (проверяем по author_id)
-          if (currentTraderId && newAuthorId === currentTraderId) {
-            console.log("Skipping own message from Realtime:", newId);
-            return;
-          }
-          
-          // Пропускаем старые сообщения
-          if (lastMessageId !== null && newId <= lastMessageId) {
-            console.log("Skipping old message from Realtime:", newId);
-            return;
-          }
+          // Обрабатываем INSERT события
+          if (payload.eventType === "INSERT" && payload.new) {
+            console.log("Current trader ID:", currentTraderId, "New message author_id:", payload.new.author_id);
+            const newId = payload.new.id;
+            const newAuthorId = payload.new.author_id;
+            
+            console.log("Processing Realtime INSERT:", {
+              newId,
+              newAuthorId,
+              currentTraderId,
+              lastMessageId
+            });
+            
+            // НЕ пропускаем сообщения по lastMessageId, так как это может блокировать новые сообщения
+            // Вместо этого полагаемся на проверку наличия сообщения в списке
+            // lastMessageId используется только для начальной загрузки, не для фильтрации Realtime
 
-          // Проверяем, нет ли уже такого сообщения в списке
-          setMessages((prev) => {
-            if (prev.some((msg) => msg.id === newId)) {
-              console.log("Message already exists, skipping:", newId);
-              return prev;
-            }
-            return prev;
-          });
+            // Загружаем полные данные нового сообщения
+            const { data: newMessageData, error } = await supabase
+              .from("chat_messages")
+              .select(`
+                *,
+                author:traders!chat_messages_author_id_fkey(id, name_short, mail, photo),
+                mentioned_trader:traders!chat_messages_mentioned_trader_id_fkey(name_short)
+              `)
+              .eq("id", newId)
+              .single();
 
-          // Загружаем полные данные нового сообщения
-          const { data: newMessageData, error } = await supabase
-            .from("chat_messages")
-            .select(`
-              *,
-              author:traders!chat_messages_author_id_fkey(id, name_short, mail, photo),
-              mentioned_trader:traders!chat_messages_mentioned_trader_id_fkey(name_short)
-            `)
-            .eq("id", newId)
-            .single();
+            console.log("New message from Realtime:", { newMessageData, error });
 
-          console.log("New message from Realtime:", { newMessageData, error });
-
-          if (!error && newMessageData) {
-            // Загружаем reply_to отдельно, если есть
-            let messageWithReply = newMessageData;
-            if (newMessageData.reply_to_id) {
-              const { data: replyData } = await supabase
-                .from("chat_messages")
-                .select(`
-                  id,
-                  message,
-                  author_id,
-                  author:traders!chat_messages_author_id_fkey(name_short, photo)
-                `)
-                .eq("id", newMessageData.reply_to_id)
-                .single();
+            if (!error && newMessageData) {
+              // Загружаем reply_to отдельно, если есть
+              let messageWithReply = newMessageData;
+              if (newMessageData.reply_to_id) {
+                const { data: replyData } = await supabase
+                  .from("chat_messages")
+                  .select(`
+                    id,
+                    message,
+                    author_id,
+                    author:traders!chat_messages_author_id_fkey(name_short, photo)
+                  `)
+                  .eq("id", newMessageData.reply_to_id)
+                  .single();
+                
+                messageWithReply = {
+                  ...newMessageData,
+                  reply_to: replyData || null,
+                };
+              }
               
-              messageWithReply = {
-                ...newMessageData,
-                reply_to: replyData || null,
-              };
+              const formattedMessage = formatMessage(messageWithReply);
+              
+              // Добавляем сообщение в список с проверкой на дубликат
+              setMessages((prev) => {
+                // Проверяем, нет ли уже такого сообщения по ID
+                const messageExists = prev.some((msg) => msg.id === formattedMessage.id);
+                if (messageExists) {
+                  console.log("Message already in list, skipping:", formattedMessage.id);
+                  return prev;
+                }
+                console.log("Adding new message from Realtime:", formattedMessage.id, "author:", formattedMessage.author?.mail, "current list length:", prev.length);
+                return [...prev, formattedMessage];
+              });
+              
+              // Показываем уведомление, если сообщение не от текущего пользователя
+              // Но только если это действительно другое устройство (проверяем по email)
+              const messageAuthorEmail = formattedMessage.author?.mail;
+              if (messageAuthorEmail && messageAuthorEmail !== userEmail) {
+                showNotification(formattedMessage);
+              }
+              
+              // Обновляем lastMessageId только если это действительно новое сообщение
+              setLastMessageId((prevId) => {
+                if (prevId === null || newId > prevId) {
+                  return newId;
+                }
+                return prevId;
+              });
             }
+          // Обрабатываем UPDATE события
+          } else if (payload.eventType === "UPDATE") {
+            const updatedId = payload.new.id;
             
-            const formattedMessage = formatMessage(messageWithReply);
-            
-            // Дополнительная проверка перед добавлением
-            setMessages((prev) => {
-              // Проверяем, нет ли уже такого сообщения по ID
-              if (prev.some((msg) => msg.id === formattedMessage.id)) {
-                console.log("Message already in list, skipping:", formattedMessage.id);
+            // Загружаем обновленные данные сообщения
+            const { data: updatedMessageData, error } = await supabase
+              .from("chat_messages")
+              .select(`
+                *,
+                author:traders!chat_messages_author_id_fkey(id, name_short, mail, photo),
+                mentioned_trader:traders!chat_messages_mentioned_trader_id_fkey(name_short)
+              `)
+              .eq("id", updatedId)
+              .single();
+
+            if (!error && updatedMessageData) {
+              // Загружаем reply_to отдельно, если есть
+              let messageWithReply = updatedMessageData;
+              if (updatedMessageData.reply_to_id) {
+                const { data: replyData } = await supabase
+                  .from("chat_messages")
+                  .select(`
+                    id,
+                    message,
+                    author_id,
+                    author:traders!chat_messages_author_id_fkey(name_short, photo)
+                  `)
+                  .eq("id", updatedMessageData.reply_to_id)
+                  .single();
+                
+                messageWithReply = {
+                  ...updatedMessageData,
+                  reply_to: replyData || null,
+                };
+              }
+              
+              const formattedMessage = formatMessage(messageWithReply);
+              
+              // Обновляем сообщение в списке
+              setMessages((prev) => {
+                const index = prev.findIndex((msg) => msg.id === formattedMessage.id);
+                if (index !== -1) {
+                  const updated = [...prev];
+                  updated[index] = formattedMessage;
+                  return updated;
+                }
                 return prev;
-              }
-              console.log("Adding new message from Realtime:", formattedMessage.id);
-              return [...prev, formattedMessage];
-            });
-            
-            // Показываем уведомление, если сообщение не от текущего пользователя
-            if (formattedMessage.author?.mail !== userEmail) {
-              showNotification(formattedMessage);
+              });
             }
-            
-            // Обновляем lastMessageId только если это действительно новое сообщение
-            setLastMessageId((prevId) => {
-              if (prevId === null || newId > prevId) {
-                return newId;
-              }
-              return prevId;
-            });
+          // Обрабатываем DELETE события
+          } else if (payload.eventType === "DELETE") {
+            // Удаляем сообщение из списка
+            setMessages((prev) => prev.filter((msg) => msg.id !== payload.old.id));
           }
         }
       )
-      .on(
-        "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "chat_messages",
-        },
-        (payload) => {
-          // Удаляем сообщение из списка
-          setMessages((prev) => prev.filter((msg) => msg.id !== payload.old.id));
-        }
-      )
-      .subscribe();
+        .subscribe((status) => {
+          console.log("Realtime subscription status:", status);
+          if (status === "SUBSCRIBED") {
+            console.log("Successfully subscribed to chat_messages changes");
+          } else if (status === "CHANNEL_ERROR") {
+            console.error("Error subscribing to chat_messages changes");
+          } else if (status === "TIMED_OUT") {
+            console.warn("Realtime subscription timed out");
+          } else if (status === "CLOSED") {
+            console.warn("Realtime subscription closed");
+          }
+        });
 
+    // Отписываемся при размонтировании или изменении зависимостей
     return () => {
+      console.log("Unsubscribing from chat_messages changes");
       supabase.removeChannel(channel);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail]);
+  }, [userEmail, currentTraderId]); // Убираем lastMessageId из зависимостей, чтобы избежать лишних переподписок
 
   useEffect(() => {
     if (isScrolledToBottom) {
