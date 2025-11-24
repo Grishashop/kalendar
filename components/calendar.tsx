@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { formatDateMoscow, parseDateMoscow, getMoscowDateComponents, createMoscowDate } from "@/lib/date-utils";
 
 interface Duty {
   id: string;
@@ -20,6 +21,7 @@ interface Duty {
 interface CalendarProps {
   onDayClick: (date: Date, duties: Duty[]) => void;
   onDoubleClick?: (date: Date) => void;
+  refreshTrigger?: number; // Триггер для обновления данных без перезагрузки
 }
 
 const monthNames = [
@@ -61,8 +63,36 @@ interface TraderFilter {
   name_short: string;
 }
 
-export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
-  const [currentDate, setCurrentDate] = useState(new Date());
+export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: CalendarProps) {
+  // Сохраняем текущий месяц в localStorage, чтобы не сбрасывать при обновлении
+  const getInitialDate = () => {
+    if (typeof window !== 'undefined') {
+      const savedDate = localStorage.getItem('calendarCurrentDate');
+      if (savedDate) {
+          try {
+            const parsed = new Date(savedDate);
+            if (!isNaN(parsed.getTime())) {
+              return parsed;
+            }
+          } catch {
+            // Игнорируем ошибки парсинга
+          }
+      }
+    }
+    // Используем московское время для начальной даты
+    const now = new Date();
+    const moscowComponents = getMoscowDateComponents(now);
+    return createMoscowDate(moscowComponents.year, moscowComponents.month, moscowComponents.day);
+  };
+
+  const [currentDate, setCurrentDate] = useState(getInitialDate);
+  
+  // Сохраняем текущую дату в localStorage при изменении
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('calendarCurrentDate', currentDate.toISOString());
+    }
+  }, [currentDate]);
   const [duties, setDuties] = useState<Map<string, Duty[]>>(new Map());
   const [allDuties, setAllDuties] = useState<Map<string, Duty[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -90,9 +120,9 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
       
       const supabase = createClient();
 
-      // Получаем первый и последний день месяца
-      const firstDay = new Date(year, month, 1);
-      const lastDay = new Date(year, month + 1, 0);
+      // Получаем первый и последний день месяца в московском времени
+      const firstDay = createMoscowDate(year, month + 1, 1);
+      const lastDay = createMoscowDate(year, month + 2, 0); // последний день месяца
 
       // Получаем данные из таблицы dezurstva
       // Сначала пробуем получить все данные без фильтрации
@@ -145,8 +175,9 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
           console.log("Processing duty:", duty, "dateKey:", dateKey);
           
           if (dateKey) {
-            // Фильтруем по месяцу на клиенте
-            const dutyDate = new Date(dateKey);
+            // Парсим дату в московском времени
+            // dateKey имеет формат "YYYY-MM-DD", создаем Date в московском времени
+            const dutyDate = parseDateMoscow(dateKey);
             if (
               dutyDate >= firstDay &&
               dutyDate <= lastDay &&
@@ -169,7 +200,111 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
     };
 
     fetchDuties();
-  }, [year, month]);
+  }, [year, month, refreshTrigger]); // Добавляем refreshTrigger в зависимости
+
+  // Отдельный useEffect для подписки на Realtime изменения
+  useEffect(() => {
+    const supabase = createClient();
+    
+    // Функция для обновления данных календаря
+    const updateDuties = async () => {
+      const { data, error } = await supabase
+        .from("dezurstva")
+        .select("*");
+
+      if (error) {
+        console.error("Error fetching duties after realtime event:", error);
+        return;
+      }
+
+      // Группируем по датам и фильтруем по текущему месяцу
+      const dutiesMap = new Map<string, Duty[]>();
+      if (data && data.length > 0) {
+        const firstDay = createMoscowDate(year, month + 1, 1);
+        const lastDay = createMoscowDate(year, month + 2, 0); // последний день месяца
+        
+        data.forEach((duty) => {
+          const dateKey = 
+            duty.date_dezurztva_or_otdyh || 
+            duty.date_dezurstva_or_otdyh ||
+            duty.date ||
+            duty.created_at?.split("T")[0] || 
+            "";
+          
+          if (dateKey) {
+            const dutyDate = parseDateMoscow(dateKey);
+            if (
+              dutyDate >= firstDay &&
+              dutyDate <= lastDay &&
+              dutyDate.getMonth() === month &&
+              dutyDate.getFullYear() === year
+            ) {
+              const existing = dutiesMap.get(dateKey) || [];
+              dutiesMap.set(dateKey, [...existing, duty]);
+            }
+          }
+        });
+      }
+
+      setAllDuties(dutiesMap);
+      setDuties(dutiesMap);
+    };
+
+    // Создаем уникальное имя канала для избежания конфликтов
+    const channelName = `dezurstva_changes_${Date.now()}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "dezurstva",
+        },
+        (payload) => {
+          console.log("Realtime INSERT event received:", payload);
+          updateDuties();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "dezurstva",
+        },
+        (payload) => {
+          console.log("Realtime UPDATE event received:", payload);
+          updateDuties();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "dezurstva",
+        },
+        (payload) => {
+          console.log("Realtime DELETE event received:", payload);
+          updateDuties();
+        }
+      )
+      .subscribe((status) => {
+        console.log("Realtime subscription status:", status);
+        if (status === "SUBSCRIBED") {
+          console.log("Successfully subscribed to dezurstva changes");
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("Error subscribing to dezurstva changes");
+        }
+      });
+
+    // Отписываемся при размонтировании или изменении зависимостей
+    return () => {
+      console.log("Unsubscribing from dezurstva changes");
+      supabase.removeChannel(channel);
+    };
+  }, [year, month]); // Обновляем подписку при смене месяца
 
   // Загружаем цвета и веса типов дежурств
   useEffect(() => {
@@ -280,8 +415,8 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
   };
 
   const getDaysInMonth = () => {
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
+    const firstDay = createMoscowDate(year, month + 1, 1);
+    const lastDay = createMoscowDate(year, month + 2, 0); // последний день месяца
     const daysInMonth = lastDay.getDate();
     const startingDayOfWeek = (firstDay.getDay() + 6) % 7; // Понедельник = 0
 
@@ -294,32 +429,41 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
 
     // Дни месяца
     for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, month, i));
+      days.push(createMoscowDate(year, month + 1, i));
     }
 
     return days;
   };
 
   const previousMonth = () => {
-    setCurrentDate(new Date(year, month - 1, 1));
+    // month в JS от 0 до 11, createMoscowDate ожидает от 1 до 12
+    // Для предыдущего месяца: month (0-11) -> month + 1 (1-12), но нужно уменьшить на 1
+    const prevMonth = month === 0 ? 11 : month - 1;
+    const prevYear = month === 0 ? year - 1 : year;
+    setCurrentDate(createMoscowDate(prevYear, prevMonth + 1, 1));
   };
 
   const nextMonth = () => {
-    setCurrentDate(new Date(year, month + 1, 1));
+    // month в JS от 0 до 11, createMoscowDate ожидает от 1 до 12
+    // Для следующего месяца: month (0-11) -> month + 2 (2-13, но 13 -> 1 следующего года)
+    const nextMonth = month === 11 ? 0 : month + 1;
+    const nextYear = month === 11 ? year + 1 : year;
+    setCurrentDate(createMoscowDate(nextYear, nextMonth + 1, 1));
   };
 
   const handleDayClick = (date: Date | null) => {
     if (!date) return;
 
-    const dateKey = date.toISOString().split("T")[0];
+    // Форматируем дату в московском времени, чтобы избежать сдвига на день
+    const dateKey = formatDateMoscow(date);
     const dayDuties = duties.get(dateKey) || [];
     onDayClick(date, dayDuties);
   };
 
   const days = getDaysInMonth();
-  const today = new Date();
-  // Устанавливаем время на начало дня для корректного сравнения
-  today.setHours(0, 0, 0, 0);
+  // Получаем сегодняшнюю дату в московском времени
+  const moscowToday = getMoscowDateComponents(new Date());
+  const today = createMoscowDate(moscowToday.year, moscowToday.month, moscowToday.day);
   
   const isToday = (date: Date | null) => {
     if (!date) return false;
@@ -393,7 +537,8 @@ export function Calendar({ onDayClick, onDoubleClick }: CalendarProps) {
                 return <div key={index} className="aspect-square" />;
               }
 
-              const dateKey = date.toISOString().split("T")[0];
+              // Форматируем дату в московском времени, чтобы избежать сдвига на день
+              const dateKey = formatDateMoscow(date);
               const dayDutiesRaw = duties.get(dateKey) || [];
               
               // Сортируем дежурства по весу (ves) из таблицы typ_dezurstva

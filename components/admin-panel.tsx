@@ -10,10 +10,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { X, Edit, Trash2, Plus, Save } from "lucide-react";
+import { X, Edit, Trash2, Plus, Save, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { formatDateMoscow } from "@/lib/date-utils";
 
 interface Trader {
   id: string;
@@ -57,11 +58,40 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const [editingItem, setEditingItem] = useState<Trader | Duty | DutyType | Partial<Trader> | Partial<Duty> | Partial<DutyType> | null>(null);
   const [editingTable, setEditingTable] = useState<string | null>(null);
   const editingItemIdRef = useRef<string | number | null>(null);
+  const [showVersionInfo, setShowVersionInfo] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<{
+    version: string;
+    commitHash: string;
+    commitDate: string;
+    commitMessage: string;
+    buildTime: string;
+    environment: string;
+    vercelUrl?: string;
+  } | null>(null);
 
   useEffect(() => {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  const fetchVersionInfo = async () => {
+    try {
+      const response = await fetch("/api/version");
+      if (response.ok) {
+        const data = await response.json();
+        setVersionInfo(data);
+      }
+    } catch (error) {
+      console.error("Ошибка при получении версии:", error);
+    }
+  };
+
+  const handleInfoClick = () => {
+    if (!versionInfo) {
+      fetchVersionInfo();
+    }
+    setShowVersionInfo(true);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -412,7 +442,8 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               onClick={() => {
                 const newDuty: Partial<Duty> = {
                   traders: "",
-                  date_dezurztva_or_otdyh: new Date().toISOString().split("T")[0],
+                  // Форматируем дату в московском времени
+                  date_dezurztva_or_otdyh: formatDateMoscow(new Date()),
                   tip_dezursva_or_otdyh: "",
                   utverzdeno: false,
                 };
@@ -537,9 +568,20 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
       <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <div>
-            <CardTitle>Панель администратора</CardTitle>
-            <CardDescription>Управление данными системы</CardDescription>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleInfoClick}
+              className="text-blue-600 border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+            >
+              <Info className="h-4 w-4 mr-2" />
+              Info
+            </Button>
+            <div>
+              <CardTitle>Панель администратора</CardTitle>
+              <CardDescription>Управление данными системы</CardDescription>
+            </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="h-4 w-4" />
@@ -637,6 +679,70 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Модальное окно с информацией о версии */}
+      {showVersionInfo && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50" onClick={() => setShowVersionInfo(false)}>
+          <Card className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+              <CardTitle>Информация о версии</CardTitle>
+              <Button variant="ghost" size="icon" onClick={() => setShowVersionInfo(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {versionInfo ? (
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm font-semibold text-muted-foreground">Версия</Label>
+                    <p className="text-lg font-bold">{versionInfo.version}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-muted-foreground">Commit Hash</Label>
+                    <p className="font-mono text-sm">{versionInfo.commitHash}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-muted-foreground">Дата коммита</Label>
+                    <p className="text-sm">
+                      {new Date(versionInfo.commitDate).toLocaleString("ru-RU", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-muted-foreground">Сообщение коммита</Label>
+                    <p className="text-sm">{versionInfo.commitMessage}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-muted-foreground">Время сборки</Label>
+                    <p className="text-sm">
+                      {new Date(versionInfo.buildTime).toLocaleString("ru-RU")}
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-muted-foreground">Окружение</Label>
+                    <p className="text-sm">{versionInfo.environment}</p>
+                  </div>
+                  {versionInfo.vercelUrl && versionInfo.vercelUrl !== "local" && (
+                    <div>
+                      <Label className="text-sm font-semibold text-muted-foreground">URL</Label>
+                      <p className="text-sm">{versionInfo.vercelUrl}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-8">
+                  <p className="text-muted-foreground">Загрузка информации...</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

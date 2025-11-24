@@ -42,6 +42,7 @@ export default function ProtectedPage() {
   const [showAddDutyCard, setShowAddDutyCard] = useState(false);
   const [addDutyDate, setAddDutyDate] = useState<Date | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -105,8 +106,8 @@ export default function ProtectedPage() {
   const handleAddDutySuccess = () => {
     setShowAddDutyCard(false);
     setAddDutyDate(null);
-    // Обновляем страницу для перезагрузки календаря
-    window.location.reload();
+    // Обновляем календарь без перезагрузки страницы
+    setCalendarRefreshTrigger(prev => prev + 1);
   };
 
   if (isAuthenticated === null) {
@@ -190,6 +191,7 @@ export default function ProtectedPage() {
             <Calendar 
               onDayClick={handleDayClick} 
               onDoubleClick={handleDoubleClick}
+              refreshTrigger={calendarRefreshTrigger}
             />
           </TabsContent>
           
@@ -236,8 +238,10 @@ export default function ProtectedPage() {
           isAdmin={traderData?.admin || false}
           currentTraderName={traderData?.name_short}
           onDelete={() => {
-            // Обновляем страницу для перезагрузки календаря
-            window.location.reload();
+            // Обновляем календарь без перезагрузки страницы
+            setCalendarRefreshTrigger(prev => prev + 1);
+            setSelectedDate(null);
+            setSelectedDuties([]);
           }}
         />
       )}

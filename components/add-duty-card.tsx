@@ -12,6 +12,7 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { formatDateMoscow } from "@/lib/date-utils";
 
 interface Trader {
   id: string;
@@ -129,7 +130,8 @@ export function AddDutyCard({
 
     try {
       const supabase = createClient();
-      const dateStr = date.toISOString().split("T")[0];
+      // Форматируем дату в московском времени, чтобы избежать сдвига на день
+      const dateStr = formatDateMoscow(date);
 
       const insertData: {
         date_dezurztva_or_otdyh: string;
