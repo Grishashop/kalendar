@@ -96,6 +96,16 @@ export function DayDetailsCard({
         throw deleteError;
       }
 
+      // Если данные успешно удалены, сразу обновляем кэш календаря
+      // Это нужно для случаев, когда Realtime не работает
+      if (typeof window !== 'undefined') {
+        const deleteDutyFn = (window as Window & { __calendarDeleteDuty?: (dutyId: string | number) => void }).__calendarDeleteDuty;
+        if (deleteDutyFn) {
+          deleteDutyFn(duty.id);
+          console.log("Immediately removed duty from calendar cache:", duty.id);
+        }
+      }
+
       // Обновляем список после удаления
       if (onDelete) {
         onDelete();

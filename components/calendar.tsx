@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,6 +22,8 @@ interface CalendarProps {
   onDayClick: (date: Date, duties: Duty[]) => void;
   onDoubleClick?: (date: Date) => void;
   refreshTrigger?: number; // Триггер для обновления данных без перезагрузки
+  onDutyAdded?: (duty: Duty) => void;
+  onDutyDeleted?: (dutyId: string | number) => void;
 }
 
 const monthNames = [
@@ -63,7 +65,7 @@ interface TraderFilter {
   name_short: string;
 }
 
-export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: CalendarProps) {
+export function Calendar({ onDayClick, onDoubleClick, refreshTrigger, onDutyAdded, onDutyDeleted }: CalendarProps) {
   // Сохраняем текущий месяц в localStorage, чтобы не сбрасывать при обновлении
   const getInitialDate = () => {
     if (typeof window !== 'undefined') {
@@ -268,8 +270,69 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
     };
 
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year, month, refreshTrigger]); // Зависимости: год, месяц и триггер обновления
+
+  // Функция для немедленного добавления дежурства в кэш (для случаев, когда Realtime не работает)
+  const addDutyToCache = useCallback((duty: Duty) => {
+    const dateKey = 
+      duty.date_dezurztva_or_otdyh || 
+      duty.created_at?.split("T")[0] || 
+      "";
+    
+    if (dateKey) {
+      setAllDuties((prev) => {
+        const updated = new Map(prev);
+        const existing = updated.get(dateKey) || [];
+        // Проверяем, нет ли уже такого дежурства (по ID)
+        if (!existing.some((d) => d.id === duty.id)) {
+          updated.set(dateKey, [...existing, duty]);
+          console.log("Added duty to cache immediately:", duty.id, "for date:", dateKey);
+        }
+        return updated;
+      });
+    }
+  }, []);
+
+  // Функция для немедленного удаления дежурства из кэша (для случаев, когда Realtime не работает)
+  const removeDutyFromCache = useCallback((dutyId: string | number) => {
+    setAllDuties((prev) => {
+      const updated = new Map(prev);
+      let found = false;
+      
+      updated.forEach((dutyArray, dateKey) => {
+        const filtered = dutyArray.filter((d) => d.id !== dutyId);
+        if (filtered.length !== dutyArray.length) {
+          found = true;
+          if (filtered.length > 0) {
+            updated.set(dateKey, filtered);
+          } else {
+            updated.delete(dateKey);
+          }
+        }
+      });
+      
+      if (found) {
+        console.log("Removed duty from cache immediately:", dutyId);
+      }
+      
+      return updated;
+    });
+  }, []);
+
+  // Экспортируем функции через callback props
+  useEffect(() => {
+    if (onDutyAdded) {
+      // Сохраняем функцию для использования извне
+      (window as Window & { __calendarAddDuty?: (duty: Duty) => void }).__calendarAddDuty = addDutyToCache;
+    }
+    if (onDutyDeleted) {
+      (window as Window & { __calendarDeleteDuty?: (dutyId: string | number) => void }).__calendarDeleteDuty = removeDutyFromCache;
+    }
+    return () => {
+      delete (window as Window & { __calendarAddDuty?: (duty: Duty) => void }).__calendarAddDuty;
+      delete (window as Window & { __calendarDeleteDuty?: (dutyId: string | number) => void }).__calendarDeleteDuty;
+    };
+  }, [onDutyAdded, onDutyDeleted, addDutyToCache, removeDutyFromCache]);
 
   // Отдельный useEffect для обновления duties при изменении allDuties или месяца
   useEffect(() => {
@@ -296,6 +359,15 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
   // Отдельный useEffect для подписки на Realtime изменения
   useEffect(() => {
     const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let subscriptionCheckInterval: NodeJS.Timeout | null = null;
+    let pollingInterval: NodeJS.Timeout | null = null;
+    let isSubscribed = false;
+    let lastRealtimeEventTime = Date.now();
+    let usePolling = false;
+    const POLLING_INTERVAL = 10000; // 10 секунд
+    const REALTIME_TIMEOUT = 30000; // 30 секунд без событий = переключение на polling
     
     // Функция для обновления данных календаря после Realtime событий (INSERT, UPDATE)
     const updateDuties = async () => {
@@ -409,66 +481,196 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
       });
     };
 
-    // Создаем уникальное имя канала для избежания конфликтов
-    const channelName = `dezurstva_changes_${Date.now()}`;
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "dezurstva",
-        },
-        (payload) => {
-          console.log("Realtime INSERT event received:", payload);
-          updateDuties();
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "dezurstva",
-        },
-        (payload) => {
-          console.log("Realtime UPDATE event received:", payload);
-          updateDuties();
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "DELETE",
-          schema: "public",
-          table: "dezurstva",
-        },
-        (payload) => {
-          console.log("Realtime DELETE event received:", payload);
-          // Обрабатываем DELETE напрямую, удаляя запись из кэша
-          if (payload.old && payload.old.id) {
-            handleDelete(payload.old as { id: number | string });
-          } else {
-            // Если нет данных в payload.old, перезагружаем все данные
-            console.log("No old data in DELETE payload, reloading all duties");
+    // Функция для создания и подписки на канал
+    const subscribeToRealtime = () => {
+      // Очищаем предыдущий канал, если он существует
+      if (channel) {
+        console.log("Removing previous channel before creating new one");
+        supabase.removeChannel(channel);
+      }
+      
+      // Создаем уникальное имя канала для избежания конфликтов
+      const channelName = `dezurstva_changes_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      console.log("Creating new Realtime channel:", channelName);
+      
+      channel = supabase
+        .channel(channelName)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "dezurstva",
+          },
+          (payload) => {
+            console.log("Realtime INSERT event received:", payload);
+            lastRealtimeEventTime = Date.now();
+            // Если был включен polling, отключаем его
+            if (usePolling && pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              usePolling = false;
+              console.log("Realtime is working, stopped polling");
+            }
             updateDuties();
           }
-        }
-      )
-      .subscribe((status) => {
-        console.log("Realtime subscription status:", status);
-        if (status === "SUBSCRIBED") {
-          console.log("Successfully subscribed to dezurstva changes");
-        } else if (status === "CHANNEL_ERROR") {
-          console.error("Error subscribing to dezurstva changes");
-        }
-      });
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "dezurstva",
+          },
+          (payload) => {
+            console.log("Realtime UPDATE event received:", payload);
+            lastRealtimeEventTime = Date.now();
+            // Если был включен polling, отключаем его
+            if (usePolling && pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              usePolling = false;
+              console.log("Realtime is working, stopped polling");
+            }
+            updateDuties();
+          }
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "DELETE",
+            schema: "public",
+            table: "dezurstva",
+          },
+          (payload) => {
+            console.log("Realtime DELETE event received:", payload);
+            lastRealtimeEventTime = Date.now();
+            // Если был включен polling, отключаем его
+            if (usePolling && pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              usePolling = false;
+              console.log("Realtime is working, stopped polling");
+            }
+            // Обрабатываем DELETE напрямую, удаляя запись из кэша
+            if (payload.old && payload.old.id) {
+              handleDelete(payload.old as { id: number | string });
+            } else {
+              // Если нет данных в payload.old, перезагружаем все данные
+              console.log("No old data in DELETE payload, reloading all duties");
+              updateDuties();
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log("Realtime subscription status:", status);
+          isSubscribed = status === "SUBSCRIBED";
+          
+          if (status === "SUBSCRIBED") {
+            console.log("Successfully subscribed to dezurstva changes");
+            usePolling = false; // Realtime работает, отключаем polling
+            lastRealtimeEventTime = Date.now();
+            // Очищаем таймаут переподключения при успешной подписке
+            if (reconnectTimeout) {
+              clearTimeout(reconnectTimeout);
+              reconnectTimeout = null;
+            }
+            // Останавливаем polling, если он был запущен
+            if (pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              console.log("Stopped polling, Realtime is working");
+            }
+          } else if (status === "CHANNEL_ERROR") {
+            console.error("Error subscribing to dezurstva changes");
+            // Если Realtime не работает, включаем polling
+            if (!usePolling) {
+              console.log("Realtime failed, switching to polling fallback");
+              usePolling = true;
+              startPolling();
+            }
+            // Переподключаемся через 5 секунд при ошибке
+            reconnectTimeout = setTimeout(() => {
+              console.log("Retrying Realtime subscription...");
+              subscribeToRealtime();
+            }, 5000);
+          } else if (status === "TIMED_OUT") {
+            console.warn("Realtime subscription timed out");
+            // Если Realtime не работает, включаем polling
+            if (!usePolling) {
+              console.log("Realtime timed out, switching to polling fallback");
+              usePolling = true;
+              startPolling();
+            }
+            reconnectTimeout = setTimeout(() => {
+              console.log("Retrying Realtime subscription after timeout...");
+              subscribeToRealtime();
+            }, 5000);
+          } else if (status === "CLOSED") {
+            console.warn("Realtime subscription closed");
+            // Если Realtime не работает, включаем polling
+            if (!usePolling) {
+              console.log("Realtime closed, switching to polling fallback");
+              usePolling = true;
+              startPolling();
+            }
+            reconnectTimeout = setTimeout(() => {
+              console.log("Retrying Realtime subscription after close...");
+              subscribeToRealtime();
+            }, 5000);
+          }
+        });
+    };
+
+    // Функция для запуска polling fallback
+    const startPolling = () => {
+      if (pollingInterval) {
+        return; // Polling уже запущен
+      }
+      console.log("Starting polling fallback (checking for changes every", POLLING_INTERVAL / 1000, "seconds)");
+      pollingInterval = setInterval(() => {
+        console.log("Polling: checking for changes...");
+        updateDuties();
+      }, POLLING_INTERVAL);
+    };
+
+    // Периодическая проверка состояния подписки и переключение на polling при необходимости
+    subscriptionCheckInterval = setInterval(() => {
+      if (channel && !isSubscribed) {
+        console.warn("Realtime subscription appears to be inactive, reconnecting...");
+        subscribeToRealtime();
+      }
+      
+      // Если Realtime подписан, но нет событий в течение REALTIME_TIMEOUT, переключаемся на polling
+      if (isSubscribed && !usePolling && (Date.now() - lastRealtimeEventTime) > REALTIME_TIMEOUT) {
+        console.warn("No Realtime events for", REALTIME_TIMEOUT / 1000, "seconds, switching to polling");
+        usePolling = true;
+        startPolling();
+      }
+    }, 10000); // Проверяем каждые 10 секунд
+
+    // Начальная подписка
+    subscribeToRealtime();
 
     // Отписываемся при размонтировании или изменении зависимостей
     return () => {
       console.log("Unsubscribing from dezurstva changes");
-      supabase.removeChannel(channel);
+      
+      // Очищаем таймауты
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (subscriptionCheckInterval) {
+        clearInterval(subscriptionCheckInterval);
+      }
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+      
+      // Удаляем канал
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [year, month]); // Обновляем подписку при смене месяца
 

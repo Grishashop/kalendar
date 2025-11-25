@@ -94,10 +94,87 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     }
 
     const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let pollingInterval: NodeJS.Timeout | null = null;
+    let subscriptionCheckInterval: NodeJS.Timeout | null = null;
+    let isSubscribed = false;
+    let lastRealtimeEventTime = Date.now();
+    let usePolling = false;
+    const POLLING_INTERVAL = 10000; // 10 секунд
+    const REALTIME_TIMEOUT = 30000; // 30 секунд без событий = переключение на polling
+    
+    // Функция для загрузки новых сообщений (для polling)
+    const fetchNewMessages = async () => {
+      try {
+        const { data: newMessages, error } = await supabase
+          .from("chat_messages")
+          .select(`
+            *,
+            author:traders!chat_messages_author_id_fkey(id, name_short, mail, photo),
+            mentioned_trader:traders!chat_messages_mentioned_trader_id_fkey(name_short)
+          `)
+          .order("id", { ascending: false })
+          .limit(50);
+
+        if (error) {
+          console.error("Error fetching messages in polling:", error);
+          return;
+        }
+
+        if (newMessages && newMessages.length > 0) {
+          // Форматируем сообщения
+          const formattedMessages = await Promise.all(
+            newMessages.map(async (msg) => {
+              let messageWithReply = msg;
+              if (msg.reply_to_id) {
+                const { data: replyData } = await supabase
+                  .from("chat_messages")
+                  .select(`
+                    id,
+                    message,
+                    author_id,
+                    author:traders!chat_messages_author_id_fkey(name_short, photo)
+                  `)
+                  .eq("id", msg.reply_to_id)
+                  .single();
+                messageWithReply = { ...msg, reply_to: replyData || null };
+              }
+              return formatMessage(messageWithReply);
+            })
+          );
+
+          // Обновляем список сообщений, добавляя только новые
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const newMessagesToAdd = formattedMessages.filter((m) => !existingIds.has(m.id));
+            if (newMessagesToAdd.length > 0) {
+              console.log("Polling: found", newMessagesToAdd.length, "new messages");
+              return [...prev, ...newMessagesToAdd].sort((a, b) => a.id - b.id);
+            }
+            return prev;
+          });
+        }
+      } catch (error) {
+        console.error("Error in polling fetch:", error);
+      }
+    };
+
+    // Функция для запуска polling fallback
+    const startPolling = () => {
+      if (pollingInterval) {
+        return; // Polling уже запущен
+      }
+      console.log("Starting polling fallback for chat (checking for changes every", POLLING_INTERVAL / 1000, "seconds)");
+      pollingInterval = setInterval(() => {
+        console.log("Polling: checking for new chat messages...");
+        fetchNewMessages();
+      }, POLLING_INTERVAL);
+    };
     
     // Создаем уникальное имя канала для избежания конфликтов
-    const channelName = `chat_messages_changes_${Date.now()}`;
-    const channel = supabase
+    const channelName = `chat_messages_changes_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    channel = supabase
       .channel(channelName)
       .on(
         "postgres_changes",
@@ -108,6 +185,15 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         },
         async (payload) => {
           console.log("Realtime event received:", payload.eventType, payload);
+          lastRealtimeEventTime = Date.now();
+          
+          // Если был включен polling, отключаем его
+          if (usePolling && pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+            usePolling = false;
+            console.log("Realtime is working for chat, stopped polling");
+          }
           
           // Обрабатываем INSERT события
           if (payload.eventType === "INSERT" && payload.new) {
@@ -246,22 +332,117 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         }
       )
         .subscribe((status) => {
-          console.log("Realtime subscription status:", status);
+          console.log("Realtime subscription status for chat:", status);
+          isSubscribed = status === "SUBSCRIBED";
+          
           if (status === "SUBSCRIBED") {
             console.log("Successfully subscribed to chat_messages changes");
+            usePolling = false; // Realtime работает, отключаем polling
+            lastRealtimeEventTime = Date.now();
+            // Останавливаем polling, если он был запущен
+            if (pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+              console.log("Stopped polling for chat, Realtime is working");
+            }
+            // Очищаем таймаут переподключения
+            if (reconnectTimeout) {
+              clearTimeout(reconnectTimeout);
+              reconnectTimeout = null;
+            }
           } else if (status === "CHANNEL_ERROR") {
             console.error("Error subscribing to chat_messages changes");
+            // Если Realtime не работает, включаем polling
+            if (!usePolling) {
+              console.log("Realtime failed for chat, switching to polling fallback");
+              usePolling = true;
+              startPolling();
+            }
+            // Переподключаемся через 5 секунд
+            reconnectTimeout = setTimeout(() => {
+              console.log("Retrying Realtime subscription for chat...");
+              // Пересоздаем канал - используем ту же логику, что и при первой подписке
+              if (channel) {
+                supabase.removeChannel(channel);
+                channel = null;
+              }
+              // Пересоздаем подписку
+              const newChannelName = `chat_messages_changes_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+              channel = supabase.channel(newChannelName)
+                .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, async () => {
+                  lastRealtimeEventTime = Date.now();
+                  if (usePolling && pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    usePolling = false;
+                  }
+                  // Используем ту же обработку событий, что и в основном канале
+                  // Для упрощения просто вызываем fetchNewMessages
+                  fetchNewMessages();
+                })
+                .subscribe((newStatus) => {
+                  isSubscribed = newStatus === "SUBSCRIBED";
+                  if (newStatus === "SUBSCRIBED") {
+                    usePolling = false;
+                    lastRealtimeEventTime = Date.now();
+                    if (pollingInterval) {
+                      clearInterval(pollingInterval);
+                      pollingInterval = null;
+                    }
+                  }
+                });
+            }, 5000);
           } else if (status === "TIMED_OUT") {
-            console.warn("Realtime subscription timed out");
+            console.warn("Realtime subscription timed out for chat");
+            if (!usePolling) {
+              console.log("Realtime timed out for chat, switching to polling fallback");
+              usePolling = true;
+              startPolling();
+            }
           } else if (status === "CLOSED") {
-            console.warn("Realtime subscription closed");
+            console.warn("Realtime subscription closed for chat");
+            if (!usePolling) {
+              console.log("Realtime closed for chat, switching to polling fallback");
+              usePolling = true;
+              startPolling();
+            }
           }
         });
+
+    // Периодическая проверка состояния подписки и переключение на polling при необходимости
+    subscriptionCheckInterval = setInterval(() => {
+      if (channel && !isSubscribed) {
+        console.warn("Chat Realtime subscription appears to be inactive, reconnecting...");
+        // Переподключение будет обработано через subscribe callback
+      }
+      
+      // Если Realtime подписан, но нет событий в течение REALTIME_TIMEOUT, переключаемся на polling
+      if (isSubscribed && !usePolling && (Date.now() - lastRealtimeEventTime) > REALTIME_TIMEOUT) {
+        console.warn("No Realtime events for chat for", REALTIME_TIMEOUT / 1000, "seconds, switching to polling");
+        usePolling = true;
+        startPolling();
+      }
+    }, 10000); // Проверяем каждые 10 секунд
 
     // Отписываемся при размонтировании или изменении зависимостей
     return () => {
       console.log("Unsubscribing from chat_messages changes");
-      supabase.removeChannel(channel);
+      
+      // Очищаем таймауты
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (subscriptionCheckInterval) {
+        clearInterval(subscriptionCheckInterval);
+      }
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+      
+      // Удаляем канал
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [userEmail, currentTraderId]); // Убираем lastMessageId из зависимостей, чтобы избежать лишних переподписок
 

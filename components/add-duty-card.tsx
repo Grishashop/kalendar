@@ -163,6 +163,20 @@ export function AddDutyCard({
         throw insertError;
       }
 
+      // Если данные успешно добавлены, сразу обновляем кэш календаря
+      // Это нужно для случаев, когда Realtime не работает
+      if (data && data.length > 0) {
+        const newDuty = data[0];
+        // Вызываем функцию обновления кэша через window (если доступна)
+        if (typeof window !== 'undefined') {
+          const addDutyFn = (window as Window & { __calendarAddDuty?: (duty: typeof newDuty) => void }).__calendarAddDuty;
+          if (addDutyFn) {
+            addDutyFn(newDuty);
+            console.log("Immediately added duty to calendar cache:", newDuty.id);
+          }
+        }
+      }
+
       onSuccess();
     } catch (err: unknown) {
       console.error("Error in handleSubmit:", err);
