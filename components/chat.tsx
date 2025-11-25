@@ -101,11 +101,14 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     let isSubscribed = false;
     let lastRealtimeEventTime = Date.now();
     let usePolling = false;
+    let isMounted = true; // Флаг для проверки, что компонент ещё смонтирован
     const POLLING_INTERVAL = 10000; // 10 секунд
     const REALTIME_TIMEOUT = 30000; // 30 секунд без событий = переключение на polling
     
     // Функция для загрузки новых сообщений (для polling)
     const fetchNewMessages = async () => {
+      if (!isMounted) return; // Проверяем, что компонент ещё смонтирован
+      
       try {
         const { data: newMessages, error } = await supabase
           .from("chat_messages")
@@ -117,8 +120,8 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
           .order("id", { ascending: false })
           .limit(50);
 
-        if (error) {
-          console.error("Error fetching messages in polling:", error);
+        if (error || !isMounted) {
+          if (error) console.error("Error fetching messages in polling:", error);
           return;
         }
 
@@ -143,6 +146,8 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
               return formatMessage(messageWithReply);
             })
           );
+
+          if (!isMounted) return; // Повторная проверка после async операций
 
           // Обновляем список сообщений, добавляя только новые
           setMessages((prev) => {
@@ -424,9 +429,10 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
       }
     }, 10000); // Проверяем каждые 10 секунд
 
-    // Отписываемся при размонтировании или изменении зависимостей
+    // Отписываемся при размонтировании
     return () => {
       console.log("Unsubscribing from chat_messages changes");
+      isMounted = false;
       
       // Очищаем таймауты
       if (reconnectTimeout) {
@@ -444,7 +450,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         supabase.removeChannel(channel);
       }
     };
-  }, [userEmail, currentTraderId]); // Убираем lastMessageId из зависимостей, чтобы избежать лишних переподписок
+  }, [userEmail, currentTraderId]); // Подписка пересоздаётся только при смене пользователя
 
   useEffect(() => {
     if (isScrolledToBottom) {

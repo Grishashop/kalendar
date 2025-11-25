@@ -110,6 +110,12 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
+  
+  // Ref для хранения текущего года и месяца для использования в Realtime callbacks
+  const currentYearMonthRef = useRef({ year, month });
+  useEffect(() => {
+    currentYearMonthRef.current = { year, month };
+  }, [year, month]);
 
   // Функция для проверки, нужно ли загружать данные для месяца
   const needsDataForMonth = (checkYear: number, checkMonth: number): boolean => {
@@ -394,6 +400,7 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
   }, [allDuties, year, month]);
 
   // Отдельный useEffect для подписки на Realtime изменения
+  // НЕ зависит от year/month, чтобы не пересоздавать подписку при переключении месяцев
   useEffect(() => {
     const supabase = createClient();
     let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -405,71 +412,150 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
     let usePolling = false;
     const POLLING_INTERVAL = 10000; // 10 секунд
     const REALTIME_TIMEOUT = 30000; // 30 секунд без событий = переключение на polling
+    let isMounted = true; // Флаг для проверки, что компонент ещё смонтирован
     
-    // Функция для обновления данных календаря после Realtime событий (INSERT, UPDATE)
-    const updateDuties = async () => {
-      const { data, error } = await supabase
-        .from("dezurstva")
-        .select("*");
+    // Функция для обновления данных календаря после Realtime событий или polling
+    const updateDuties = async (fullReplace = false) => {
+      if (!isMounted) return; // Проверяем, что компонент ещё смонтирован
+      
+      // Если fullReplace = true, загружаем только данные для загруженного диапазона
+      // Если false, загружаем все данные (для Realtime событий)
+      let query = supabase.from("dezurstva").select("*");
+      
+      if (fullReplace && loadedRangeRef.current) {
+        // Загружаем только данные для загруженного диапазона
+        const { startYear, startMonth, endYear, endMonth } = loadedRangeRef.current;
+        const rangeStart = createMoscowDate(startYear, startMonth + 1, 1);
+        const rangeEnd = createMoscowDate(endYear, endMonth + 2, 0);
+        const startDateStr = formatDateMoscow(rangeStart);
+        const endDateStr = formatDateMoscow(rangeEnd);
+        
+        query = query
+          .gte("date_dezurztva_or_otdyh", startDateStr)
+          .lte("date_dezurztva_or_otdyh", endDateStr);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         console.error("Error fetching duties after realtime event:", error);
         return;
       }
 
-      // Обновляем весь кэш данными из базы
-      const updatedDuties = new Map<string, Duty[]>();
-      if (data && data.length > 0) {
-        data.forEach((duty) => {
-          const dateKey = 
-            duty.date_dezurztva_or_otdyh || 
-            duty.date_dezurstva_or_otdyh ||
-            duty.date ||
-            duty.created_at?.split("T")[0] || 
-            "";
+      // Если fullReplace, полностью заменяем данные для загруженного диапазона
+      if (fullReplace && loadedRangeRef.current) {
+        const { startYear, startMonth, endYear, endMonth } = loadedRangeRef.current;
+        const rangeStart = createMoscowDate(startYear, startMonth + 1, 1);
+        const rangeEnd = createMoscowDate(endYear, endMonth + 2, 0);
+        
+        setAllDuties((prev) => {
+          const updated = new Map(prev);
           
-          if (dateKey) {
-            const existing = updatedDuties.get(dateKey) || [];
-            // Проверяем, нет ли уже такого дежурства (по ID)
-            if (!existing.some((d) => d.id === duty.id)) {
-              updatedDuties.set(dateKey, [...existing, duty]);
+          // Удаляем все данные для загруженного диапазона
+          updated.forEach((dutyArray, dateKey) => {
+            const dutyDate = parseDateMoscow(dateKey);
+            if (dutyDate >= rangeStart && dutyDate <= rangeEnd) {
+              updated.delete(dateKey);
             }
+          });
+          
+          // Добавляем новые данные из базы
+          if (data && data.length > 0) {
+            data.forEach((duty) => {
+              const dateKey = 
+                duty.date_dezurztva_or_otdyh || 
+                duty.created_at?.split("T")[0] || 
+                "";
+              
+              if (dateKey) {
+                const existing = updated.get(dateKey) || [];
+                // Проверяем, нет ли уже такого дежурства (по ID)
+                if (!existing.some((d) => String(d.id) === String(duty.id))) {
+                  updated.set(dateKey, [...existing, duty]);
+                }
+              }
+            });
           }
+          
+          // Обновляем данные для текущего отображаемого месяца
+          // Используем ref для получения актуальных значений year и month
+          const { year: currentYear, month: currentMonth } = currentYearMonthRef.current;
+          const currentMonthDuties = new Map<string, Duty[]>();
+          const firstDay = createMoscowDate(currentYear, currentMonth + 1, 1);
+          const lastDay = createMoscowDate(currentYear, currentMonth + 2, 0);
+          
+          updated.forEach((dutyArray, dateKey) => {
+            const dutyDate = parseDateMoscow(dateKey);
+            if (
+              dutyDate >= firstDay &&
+              dutyDate <= lastDay &&
+              dutyDate.getMonth() === currentMonth &&
+              dutyDate.getFullYear() === currentYear
+            ) {
+              currentMonthDuties.set(dateKey, dutyArray);
+            }
+          });
+          
+          setDuties(currentMonthDuties);
+          
+          return updated;
+        });
+      } else {
+        // Для Realtime событий - добавляем/обновляем данные
+        const updatedDuties = new Map<string, Duty[]>();
+        if (data && data.length > 0) {
+          data.forEach((duty) => {
+            const dateKey = 
+              duty.date_dezurztva_or_otdyh || 
+              duty.created_at?.split("T")[0] || 
+              "";
+            
+            if (dateKey) {
+              const existing = updatedDuties.get(dateKey) || [];
+              // Проверяем, нет ли уже такого дежурства (по ID)
+              if (!existing.some((d) => String(d.id) === String(duty.id))) {
+                updatedDuties.set(dateKey, [...existing, duty]);
+              }
+            }
+          });
+        }
+
+        setAllDuties((prev) => {
+          const merged = new Map(prev);
+          updatedDuties.forEach((dutyArray, dateKey) => {
+            merged.set(dateKey, dutyArray);
+          });
+          
+          // Обновляем данные для текущего отображаемого месяца сразу
+          // Используем ref для получения актуальных значений year и month
+          const { year: currentYear, month: currentMonth } = currentYearMonthRef.current;
+          const currentMonthDuties = new Map<string, Duty[]>();
+          const firstDay = createMoscowDate(currentYear, currentMonth + 1, 1);
+          const lastDay = createMoscowDate(currentYear, currentMonth + 2, 0);
+          
+          merged.forEach((dutyArray, dateKey) => {
+            const dutyDate = parseDateMoscow(dateKey);
+            if (
+              dutyDate >= firstDay &&
+              dutyDate <= lastDay &&
+              dutyDate.getMonth() === currentMonth &&
+              dutyDate.getFullYear() === currentYear
+            ) {
+              currentMonthDuties.set(dateKey, dutyArray);
+            }
+          });
+          
+          // Обновляем duties для текущего месяца
+          setDuties(currentMonthDuties);
+          
+          return merged;
         });
       }
-
-      setAllDuties((prev) => {
-        const merged = new Map(prev);
-        updatedDuties.forEach((dutyArray, dateKey) => {
-          merged.set(dateKey, dutyArray);
-        });
-        
-        // Обновляем данные для текущего отображаемого месяца сразу
-        const currentMonthDuties = new Map<string, Duty[]>();
-        const firstDay = createMoscowDate(year, month + 1, 1);
-        const lastDay = createMoscowDate(year, month + 2, 0);
-        
-        merged.forEach((dutyArray, dateKey) => {
-          const dutyDate = parseDateMoscow(dateKey);
-          if (
-            dutyDate >= firstDay &&
-            dutyDate <= lastDay &&
-            dutyDate.getMonth() === month &&
-            dutyDate.getFullYear() === year
-          ) {
-            currentMonthDuties.set(dateKey, dutyArray);
-          }
-        });
-        
-        // Обновляем duties для текущего месяца
-        setDuties(currentMonthDuties);
-        
-        return merged;
-      });
     };
 
     // Функция для удаления записи из кэша при DELETE событии
     const handleDelete = (deletedDuty: { id: number | string }) => {
+      if (!isMounted) return;
       console.log("Handling DELETE event for duty ID:", deletedDuty.id);
       
       setAllDuties((prev) => {
@@ -477,8 +563,10 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
         let found = false;
         
         // Ищем и удаляем запись по ID во всех датах
+        // Сравниваем ID как строки для надежности
+        const deletedIdStr = String(deletedDuty.id);
         updated.forEach((dutyArray, dateKey) => {
-          const filtered = dutyArray.filter((d) => d.id !== deletedDuty.id);
+          const filtered = dutyArray.filter((d) => String(d.id) !== deletedIdStr);
           if (filtered.length !== dutyArray.length) {
             found = true;
             if (filtered.length > 0) {
@@ -494,17 +582,19 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
           console.log("Deleted duty from cache");
           
           // Обновляем данные для текущего отображаемого месяца
+          // Используем ref для получения актуальных значений year и month
+          const { year: currentYear, month: currentMonth } = currentYearMonthRef.current;
           const currentMonthDuties = new Map<string, Duty[]>();
-          const firstDay = createMoscowDate(year, month + 1, 1);
-          const lastDay = createMoscowDate(year, month + 2, 0);
+          const firstDay = createMoscowDate(currentYear, currentMonth + 1, 1);
+          const lastDay = createMoscowDate(currentYear, currentMonth + 2, 0);
           
           updated.forEach((dutyArray, dateKey) => {
             const dutyDate = parseDateMoscow(dateKey);
             if (
               dutyDate >= firstDay &&
               dutyDate <= lastDay &&
-              dutyDate.getMonth() === month &&
-              dutyDate.getFullYear() === year
+              dutyDate.getMonth() === currentMonth &&
+              dutyDate.getFullYear() === currentYear
             ) {
               currentMonthDuties.set(dateKey, dutyArray);
             }
@@ -667,7 +757,9 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
       console.log("Starting polling fallback (checking for changes every", POLLING_INTERVAL / 1000, "seconds)");
       pollingInterval = setInterval(() => {
         console.log("Polling: checking for changes...");
-        updateDuties();
+        // Используем fullReplace=true для полной замены данных в загруженном диапазоне
+        // Это гарантирует, что удаленные записи будут удалены из кэша
+        updateDuties(true);
       }, POLLING_INTERVAL);
     };
 
@@ -689,9 +781,10 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
     // Начальная подписка
     subscribeToRealtime();
 
-    // Отписываемся при размонтировании или изменении зависимостей
+    // Отписываемся при размонтировании
     return () => {
       console.log("Unsubscribing from dezurstva changes");
+      isMounted = false;
       
       // Очищаем таймауты
       if (reconnectTimeout) {
@@ -709,7 +802,7 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
         supabase.removeChannel(channel);
       }
     };
-  }, [year, month]); // Обновляем подписку при смене месяца
+  }, []); // Подписка создаётся один раз при монтировании, не зависит от year/month
 
   // Загружаем цвета и веса типов дежурств
   useEffect(() => {
