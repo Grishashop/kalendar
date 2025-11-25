@@ -101,9 +101,14 @@ export function DayDetailsCard({
       if (typeof window !== 'undefined') {
         const deleteDutyFn = (window as Window & { __calendarDeleteDuty?: (dutyId: string | number) => void }).__calendarDeleteDuty;
         if (deleteDutyFn) {
+          console.log("Calling deleteDutyFn with ID:", duty.id, "type:", typeof duty.id);
           deleteDutyFn(duty.id);
           console.log("Immediately removed duty from calendar cache:", duty.id);
+        } else {
+          console.warn("deleteDutyFn is not available on window object");
         }
+      } else {
+        console.warn("Window is not available");
       }
 
       // Обновляем список после удаления

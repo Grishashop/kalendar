@@ -65,7 +65,7 @@ interface TraderFilter {
   name_short: string;
 }
 
-export function Calendar({ onDayClick, onDoubleClick, refreshTrigger, onDutyAdded, onDutyDeleted }: CalendarProps) {
+export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: CalendarProps) {
   // Сохраняем текущий месяц в localStorage, чтобы не сбрасывать при обновлении
   const getInitialDate = () => {
     if (typeof window !== 'undefined') {
@@ -295,12 +295,26 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger, onDutyAdde
 
   // Функция для немедленного удаления дежурства из кэша (для случаев, когда Realtime не работает)
   const removeDutyFromCache = useCallback((dutyId: string | number) => {
+    console.log("removeDutyFromCache called with ID:", dutyId, "type:", typeof dutyId);
+    
     setAllDuties((prev) => {
       const updated = new Map(prev);
       let found = false;
       
+      // Нормализуем ID для сравнения (приводим к строке)
+      const normalizedId = String(dutyId);
+      
       updated.forEach((dutyArray, dateKey) => {
-        const filtered = dutyArray.filter((d) => d.id !== dutyId);
+        const filtered = dutyArray.filter((d) => {
+          // Сравниваем ID как строки для надежности
+          const dutyIdStr = String(d.id);
+          const matches = dutyIdStr !== normalizedId;
+          if (!matches) {
+            console.log("Found matching duty to remove:", d.id, "from date:", dateKey);
+          }
+          return matches;
+        });
+        
         if (filtered.length !== dutyArray.length) {
           found = true;
           if (filtered.length > 0) {
@@ -313,26 +327,49 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger, onDutyAdde
       
       if (found) {
         console.log("Removed duty from cache immediately:", dutyId);
+        
+        // Сразу обновляем duties для текущего месяца
+        const currentMonthDuties = new Map<string, Duty[]>();
+        const firstDay = createMoscowDate(year, month + 1, 1);
+        const lastDay = createMoscowDate(year, month + 2, 0);
+        
+        updated.forEach((dutyArray, dateKey) => {
+          const dutyDate = parseDateMoscow(dateKey);
+          if (
+            dutyDate >= firstDay &&
+            dutyDate <= lastDay &&
+            dutyDate.getMonth() === month &&
+            dutyDate.getFullYear() === year
+          ) {
+            currentMonthDuties.set(dateKey, dutyArray);
+          }
+        });
+        
+        // Обновляем duties для текущего месяца сразу
+        setDuties(currentMonthDuties);
+      } else {
+        console.warn("Duty not found in cache for removal:", dutyId);
       }
       
       return updated;
     });
-  }, []);
+  }, [year, month]);
 
   // Экспортируем функции через callback props
   useEffect(() => {
-    if (onDutyAdded) {
-      // Сохраняем функцию для использования извне
+    // Всегда экспортируем функции, независимо от наличия props
+    if (typeof window !== 'undefined') {
       (window as Window & { __calendarAddDuty?: (duty: Duty) => void }).__calendarAddDuty = addDutyToCache;
-    }
-    if (onDutyDeleted) {
       (window as Window & { __calendarDeleteDuty?: (dutyId: string | number) => void }).__calendarDeleteDuty = removeDutyFromCache;
+      console.log("Exported calendar cache functions to window object");
     }
     return () => {
-      delete (window as Window & { __calendarAddDuty?: (duty: Duty) => void }).__calendarAddDuty;
-      delete (window as Window & { __calendarDeleteDuty?: (dutyId: string | number) => void }).__calendarDeleteDuty;
+      if (typeof window !== 'undefined') {
+        delete (window as Window & { __calendarAddDuty?: (duty: Duty) => void }).__calendarAddDuty;
+        delete (window as Window & { __calendarDeleteDuty?: (dutyId: string | number) => void }).__calendarDeleteDuty;
+      }
     };
-  }, [onDutyAdded, onDutyDeleted, addDutyToCache, removeDutyFromCache]);
+  }, [addDutyToCache, removeDutyFromCache]);
 
   // Отдельный useEffect для обновления duties при изменении allDuties или месяца
   useEffect(() => {
