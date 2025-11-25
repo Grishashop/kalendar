@@ -297,7 +297,7 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
   useEffect(() => {
     const supabase = createClient();
     
-    // Функция для обновления данных календаря после Realtime событий
+    // Функция для обновления данных календаря после Realtime событий (INSERT, UPDATE)
     const updateDuties = async () => {
       const { data, error } = await supabase
         .from("dezurstva")
@@ -359,6 +359,56 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
       });
     };
 
+    // Функция для удаления записи из кэша при DELETE событии
+    const handleDelete = (deletedDuty: { id: number | string }) => {
+      console.log("Handling DELETE event for duty ID:", deletedDuty.id);
+      
+      setAllDuties((prev) => {
+        const updated = new Map(prev);
+        let found = false;
+        
+        // Ищем и удаляем запись по ID во всех датах
+        updated.forEach((dutyArray, dateKey) => {
+          const filtered = dutyArray.filter((d) => d.id !== deletedDuty.id);
+          if (filtered.length !== dutyArray.length) {
+            found = true;
+            if (filtered.length > 0) {
+              updated.set(dateKey, filtered);
+            } else {
+              // Если для этой даты больше нет записей, удаляем дату из Map
+              updated.delete(dateKey);
+            }
+          }
+        });
+        
+        if (found) {
+          console.log("Deleted duty from cache");
+          
+          // Обновляем данные для текущего отображаемого месяца
+          const currentMonthDuties = new Map<string, Duty[]>();
+          const firstDay = createMoscowDate(year, month + 1, 1);
+          const lastDay = createMoscowDate(year, month + 2, 0);
+          
+          updated.forEach((dutyArray, dateKey) => {
+            const dutyDate = parseDateMoscow(dateKey);
+            if (
+              dutyDate >= firstDay &&
+              dutyDate <= lastDay &&
+              dutyDate.getMonth() === month &&
+              dutyDate.getFullYear() === year
+            ) {
+              currentMonthDuties.set(dateKey, dutyArray);
+            }
+          });
+          
+          // Обновляем duties для текущего месяца
+          setDuties(currentMonthDuties);
+        }
+        
+        return updated;
+      });
+    };
+
     // Создаем уникальное имя канала для избежания конфликтов
     const channelName = `dezurstva_changes_${Date.now()}`;
     const channel = supabase
@@ -396,7 +446,14 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
         },
         (payload) => {
           console.log("Realtime DELETE event received:", payload);
-          updateDuties();
+          // Обрабатываем DELETE напрямую, удаляя запись из кэша
+          if (payload.old && payload.old.id) {
+            handleDelete(payload.old as { id: number | string });
+          } else {
+            // Если нет данных в payload.old, перезагружаем все данные
+            console.log("No old data in DELETE payload, reloading all duties");
+            updateDuties();
+          }
         }
       )
       .subscribe((status) => {
