@@ -96,6 +96,8 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
   const [duties, setDuties] = useState<Map<string, Duty[]>>(new Map());
   const [allDuties, setAllDuties] = useState<Map<string, Duty[]>>(new Map());
   const [loading, setLoading] = useState(true);
+  // Отслеживаем диапазон загруженных месяцев: { startYear, startMonth, endYear, endMonth }
+  const loadedRangeRef = useRef<{ startYear: number; startMonth: number; endYear: number; endMonth: number } | null>(null);
   const [lastClickTime, setLastClickTime] = useState<{ date: Date; time: number } | null>(null);
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [traders, setTraders] = useState<TraderFilter[]>([]);
@@ -107,64 +109,62 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  useEffect(() => {
-    const fetchDuties = async () => {
-      setLoading(true);
-      
-      // Проверка переменных окружения
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
-        console.error("Supabase environment variables are not set");
-        setLoading(false);
-        return;
-      }
-      
-      const supabase = createClient();
+  // Функция для проверки, нужно ли загружать данные для месяца
+  const needsDataForMonth = (checkYear: number, checkMonth: number): boolean => {
+    if (!loadedRangeRef.current) return true;
+    
+    const { startYear, startMonth, endYear, endMonth } = loadedRangeRef.current;
+    
+    // Проверяем, находится ли месяц в загруженном диапазоне
+    if (checkYear < startYear || (checkYear === startYear && checkMonth < startMonth)) {
+      return true; // Месяц раньше загруженного диапазона
+    }
+    if (checkYear > endYear || (checkYear === endYear && checkMonth > endMonth)) {
+      return true; // Месяц позже загруженного диапазона
+    }
+    
+    return false; // Месяц уже загружен
+  };
 
-      // Получаем первый и последний день месяца в московском времени
-      const firstDay = createMoscowDate(year, month + 1, 1);
-      const lastDay = createMoscowDate(year, month + 2, 0); // последний день месяца
+  // Функция для загрузки данных за диапазон месяцев
+  const fetchDutiesForRange = async (startYear: number, startMonth: number, endYear: number, endMonth: number) => {
+    // Проверка переменных окружения
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+      console.error("Supabase environment variables are not set");
+      return;
+    }
+    
+    const supabase = createClient();
+    
+    // Получаем первый день начального месяца и последний день конечного месяца
+    const rangeStart = createMoscowDate(startYear, startMonth + 1, 1);
+    const rangeEnd = createMoscowDate(endYear, endMonth + 2, 0);
+    
+    // Форматируем даты для фильтрации в Supabase
+    const startDateStr = formatDateMoscow(rangeStart);
+    const endDateStr = formatDateMoscow(rangeEnd);
 
-      // Получаем данные из таблицы dezurstva
-      // Сначала пробуем получить все данные без фильтрации
-      const { data, error } = await supabase
-        .from("dezurstva")
-        .select("*");
+    console.log(`Загрузка данных за диапазон: ${startDateStr} - ${endDateStr}`);
 
-      if (error) {
-        console.error("Error fetching duties:", error);
-        console.error("Error details:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
-        console.error("Full error object:", JSON.stringify(error, null, 2));
-        
-        // Пробуем альтернативное название таблицы
-        console.log("Trying alternative table name...");
-        const { data: altData, error: altError } = await supabase
-          .from("dezhurstva")
-          .select("*");
-        
-        if (altError) {
-          console.error("Alternative table also failed:", altError);
-        } else {
-          console.log("Alternative table worked! Data:", altData);
-        }
-        
-        setLoading(false);
-        return;
-      }
+    // Получаем данные из таблицы dezurstva за диапазон дат
+    const { data, error } = await supabase
+      .from("dezurstva")
+      .select("*")
+      .gte("date_dezurztva_or_otdyh", startDateStr)
+      .lte("date_dezurztva_or_otdyh", endDateStr);
 
-      console.log("Duties data fetched:", data);
-      console.log("Data count:", data?.length);
+    if (error) {
+      console.error("Error fetching duties:", error);
+      return;
+    }
 
-      // Группируем по датам и фильтруем по текущему месяцу
-      const dutiesMap = new Map<string, Duty[]>();
-      if (data && data.length > 0) {
-        console.log("Processing duties data, first item:", data[0]);
+    console.log(`Загружено записей: ${data?.length || 0}`);
+
+    // Добавляем загруженные данные в кэш
+    if (data && data.length > 0) {
+      setAllDuties((prev) => {
+        const updated = new Map(prev);
         data.forEach((duty) => {
-          // Пробуем разные варианты названий поля даты
           const dateKey = 
             duty.date_dezurztva_or_otdyh || 
             duty.date_dezurstva_or_otdyh ||
@@ -172,41 +172,132 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
             duty.created_at?.split("T")[0] || 
             "";
           
-          console.log("Processing duty:", duty, "dateKey:", dateKey);
-          
           if (dateKey) {
-            // Парсим дату в московском времени
-            // dateKey имеет формат "YYYY-MM-DD", создаем Date в московском времени
-            const dutyDate = parseDateMoscow(dateKey);
-            if (
-              dutyDate >= firstDay &&
-              dutyDate <= lastDay &&
-              dutyDate.getMonth() === month &&
-              dutyDate.getFullYear() === year
-            ) {
-              const existing = dutiesMap.get(dateKey) || [];
-              dutiesMap.set(dateKey, [...existing, duty]);
+            const existing = updated.get(dateKey) || [];
+            // Проверяем, нет ли уже такого дежурства (по ID)
+            if (!existing.some((d) => d.id === duty.id)) {
+              updated.set(dateKey, [...existing, duty]);
             }
           }
         });
-        console.log("Duties map after processing:", Array.from(dutiesMap.entries()));
-      } else {
-        console.log("No data returned from query");
-      }
+        return updated;
+      });
+    }
 
-      setAllDuties(dutiesMap);
-      setDuties(dutiesMap);
+    // Обновляем диапазон загруженных месяцев
+    loadedRangeRef.current = { startYear, startMonth, endYear, endMonth };
+  };
+
+  // Основной useEffect для загрузки данных
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      
+      const now = new Date();
+      const moscowComponents = getMoscowDateComponents(now);
+      const currentYear = moscowComponents.year;
+      const currentMonth = moscowComponents.month - 1; // месяц в JS от 0 до 11
+      
+      // Вычисляем диапазон месяцев для загрузки (3 назад, текущий, 3 вперед)
+      let startYear = currentYear;
+      let startMonth = currentMonth - 3;
+      let endYear = currentYear;
+      let endMonth = currentMonth + 3;
+      
+      // Корректируем границы при выходе за пределы года
+      while (startMonth < 0) {
+        startMonth += 12;
+        startYear -= 1;
+      }
+      while (endMonth > 11) {
+        endMonth -= 12;
+        endYear += 1;
+      }
+      
+      // Проверяем, нужно ли загружать данные
+      const needsInitialLoad = !loadedRangeRef.current;
+      const needsCurrentMonth = needsDataForMonth(year, month);
+      
+      if (needsInitialLoad) {
+        // Первая загрузка - загружаем диапазон месяцев
+        console.log("Первая загрузка данных за диапазон месяцев");
+        await fetchDutiesForRange(startYear, startMonth, endYear, endMonth);
+      } else if (needsCurrentMonth && loadedRangeRef.current) {
+        // Нужно загрузить данные для текущего месяца
+        console.log("Загрузка данных для текущего месяца");
+        const { startYear: loadedStartYear, startMonth: loadedStartMonth, endYear: loadedEndYear, endMonth: loadedEndMonth } = loadedRangeRef.current;
+        
+        // Определяем, нужно ли расширить диапазон вперед или назад
+        let newStartYear = loadedStartYear;
+        let newStartMonth = loadedStartMonth;
+        let newEndYear = loadedEndYear;
+        let newEndMonth = loadedEndMonth;
+        
+        if (year < loadedStartYear || (year === loadedStartYear && month < loadedStartMonth)) {
+          // Нужно расширить диапазон назад
+          newStartYear = year;
+          newStartMonth = month;
+          // Загружаем еще 3 месяца назад от нового начала
+          let expandStartYear = year;
+          let expandStartMonth = month - 3;
+          while (expandStartMonth < 0) {
+            expandStartMonth += 12;
+            expandStartYear -= 1;
+          }
+          newStartYear = expandStartYear;
+          newStartMonth = expandStartMonth;
+        } else if (year > loadedEndYear || (year === loadedEndYear && month > loadedEndMonth)) {
+          // Нужно расширить диапазон вперед
+          newEndYear = year;
+          newEndMonth = month;
+          // Загружаем еще 3 месяца вперед от нового конца
+          let expandEndYear = year;
+          let expandEndMonth = month + 3;
+          while (expandEndMonth > 11) {
+            expandEndMonth -= 12;
+            expandEndYear += 1;
+          }
+          newEndYear = expandEndYear;
+          newEndMonth = expandEndMonth;
+        }
+        
+        await fetchDutiesForRange(newStartYear, newStartMonth, newEndYear, newEndMonth);
+      }
+      
       setLoading(false);
     };
 
-    fetchDuties();
-  }, [year, month, refreshTrigger]); // Добавляем refreshTrigger в зависимости
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month, refreshTrigger]); // Зависимости: год, месяц и триггер обновления
+
+  // Отдельный useEffect для обновления duties при изменении allDuties или месяца
+  useEffect(() => {
+    // Обновляем данные для текущего отображаемого месяца из кэша
+    const currentMonthDuties = new Map<string, Duty[]>();
+    const firstDay = createMoscowDate(year, month + 1, 1);
+    const lastDay = createMoscowDate(year, month + 2, 0);
+    
+    allDuties.forEach((dutyArray, dateKey) => {
+      const dutyDate = parseDateMoscow(dateKey);
+      if (
+        dutyDate >= firstDay &&
+        dutyDate <= lastDay &&
+        dutyDate.getMonth() === month &&
+        dutyDate.getFullYear() === year
+      ) {
+        currentMonthDuties.set(dateKey, dutyArray);
+      }
+    });
+    
+    setDuties(currentMonthDuties);
+  }, [allDuties, year, month]);
 
   // Отдельный useEffect для подписки на Realtime изменения
   useEffect(() => {
     const supabase = createClient();
     
-    // Функция для обновления данных календаря
+    // Функция для обновления данных календаря после Realtime событий
     const updateDuties = async () => {
       const { data, error } = await supabase
         .from("dezurstva")
@@ -217,12 +308,9 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
         return;
       }
 
-      // Группируем по датам и фильтруем по текущему месяцу
-      const dutiesMap = new Map<string, Duty[]>();
+      // Обновляем весь кэш данными из базы
+      const updatedDuties = new Map<string, Duty[]>();
       if (data && data.length > 0) {
-        const firstDay = createMoscowDate(year, month + 1, 1);
-        const lastDay = createMoscowDate(year, month + 2, 0); // последний день месяца
-        
         data.forEach((duty) => {
           const dateKey = 
             duty.date_dezurztva_or_otdyh || 
@@ -232,22 +320,43 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
             "";
           
           if (dateKey) {
-            const dutyDate = parseDateMoscow(dateKey);
-            if (
-              dutyDate >= firstDay &&
-              dutyDate <= lastDay &&
-              dutyDate.getMonth() === month &&
-              dutyDate.getFullYear() === year
-            ) {
-              const existing = dutiesMap.get(dateKey) || [];
-              dutiesMap.set(dateKey, [...existing, duty]);
+            const existing = updatedDuties.get(dateKey) || [];
+            // Проверяем, нет ли уже такого дежурства (по ID)
+            if (!existing.some((d) => d.id === duty.id)) {
+              updatedDuties.set(dateKey, [...existing, duty]);
             }
           }
         });
       }
 
-      setAllDuties(dutiesMap);
-      setDuties(dutiesMap);
+      setAllDuties((prev) => {
+        const merged = new Map(prev);
+        updatedDuties.forEach((dutyArray, dateKey) => {
+          merged.set(dateKey, dutyArray);
+        });
+        
+        // Обновляем данные для текущего отображаемого месяца сразу
+        const currentMonthDuties = new Map<string, Duty[]>();
+        const firstDay = createMoscowDate(year, month + 1, 1);
+        const lastDay = createMoscowDate(year, month + 2, 0);
+        
+        merged.forEach((dutyArray, dateKey) => {
+          const dutyDate = parseDateMoscow(dateKey);
+          if (
+            dutyDate >= firstDay &&
+            dutyDate <= lastDay &&
+            dutyDate.getMonth() === month &&
+            dutyDate.getFullYear() === year
+          ) {
+            currentMonthDuties.set(dateKey, dutyArray);
+          }
+        });
+        
+        // Обновляем duties для текущего месяца
+        setDuties(currentMonthDuties);
+        
+        return merged;
+      });
     };
 
     // Создаем уникальное имя канала для избежания конфликтов
