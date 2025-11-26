@@ -96,6 +96,9 @@ export function DayDetailsCard({
         throw deleteError;
       }
 
+      // Сразу обновляем локальный state, чтобы удалённая запись исчезла из карточки
+      setDuties((prevDuties) => prevDuties.filter((d) => d.id !== duty.id));
+      
       // Если данные успешно удалены, сразу обновляем кэш календаря
       // Это нужно для случаев, когда Realtime не работает
       if (typeof window !== 'undefined') {
@@ -111,7 +114,7 @@ export function DayDetailsCard({
         console.warn("Window is not available");
       }
 
-      // Обновляем список после удаления
+      // Обновляем список после удаления (для обратной совместимости)
       if (onDelete) {
         onDelete();
       }

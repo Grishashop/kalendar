@@ -356,10 +356,9 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
               reconnectTimeout = null;
             }
           } else if (status === "CHANNEL_ERROR") {
-            console.error("Error subscribing to chat_messages changes");
+            console.warn("Realtime недоступен для chat_messages (возможно, заблокирован браузером). Используется polling fallback.");
             // Если Realtime не работает, включаем polling
             if (!usePolling) {
-              console.log("Realtime failed for chat, switching to polling fallback");
               usePolling = true;
               startPolling();
             }
