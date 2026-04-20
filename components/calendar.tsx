@@ -1468,16 +1468,19 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
                   <span className={cn("font-medium", sizeClasses.date)}>{date.getDate()}</span>
                   <div className="flex flex-col w-full overflow-hidden">
                     {dayDuties.slice(0, visibleRows).map((duty, idx) => {
-                      // Получаем цвет для утвержденных дежурств
-                      const dutyColor = duty.utverzdeno === true && duty.tip_dezursva_or_otdyh
+                      // Получаем цвет типа дежурства (независимо от утверждения)
+                      const typeColor = duty.tip_dezursva_or_otdyh
                         ? dutyTypeColors.get(duty.tip_dezursva_or_otdyh)
                         : null;
+                      const isApproved = duty.utverzdeno === true;
+                      // Полная заливка только для утверждённых
+                      const dutyColor = isApproved ? typeColor : null;
 
                       return (
                         <div
                           key={idx}
                           className={cn(
-                            "truncate rounded border border-black/50 dark:border-black/50",
+                            "truncate rounded border border-black/50 dark:border-black/50 flex items-center gap-1",
                             sizeClasses.duty,
                             isToday(date)
                               ? dutyColor
@@ -1497,7 +1500,18 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
                           }
                           title={duty.traders}
                         >
-                          {duty.traders}
+                          {!isApproved && typeColor && (
+                            <span
+                              className="inline-block flex-shrink-0 rounded-sm border border-black/30 dark:border-white/20"
+                              style={{
+                                backgroundColor: typeColor,
+                                width: "0.7em",
+                                height: "0.7em",
+                              }}
+                              aria-hidden="true"
+                            />
+                          )}
+                          <span className="truncate">{duty.traders}</span>
                         </div>
                       );
                     })}
