@@ -1317,7 +1317,7 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
         transformOrigin: 'top center',
       }}
     >
-      <div className="bg-card border rounded-lg shadow-sm p-4 md:p-6">
+      <div className="bg-card border rounded-lg shadow-md ring-1 ring-black/5 dark:ring-white/5 p-4 md:p-6">
         {/* Header с навигацией */}
         <div className="flex items-center justify-between mb-6">
           <Button
@@ -1420,10 +1420,10 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
                 : "";
               
               const todayClass = isToday(date)
-                ? "border-2 border-red-500 text-foreground font-semibold bg-[#FFFFFF] dark:bg-[#A1A1A1]"
+                ? "border-2 border-red-500 text-foreground font-semibold bg-red-500/5 dark:bg-red-500/10 shadow-sm ring-1 ring-red-500/20"
                 : isPastDate(date)
-                ? "border border-black dark:border-black bg-muted/30 dark:bg-muted/70 opacity-30 hover:bg-muted/30 dark:hover:bg-muted/70"
-                : cn("border border-black dark:border-black bg-muted/90 dark:bg-muted/90 hover:bg-muted/90 text-foreground", weekendClass);
+                ? "border border-border bg-muted/30 dark:bg-muted/40 opacity-40 hover:opacity-60 hover:bg-muted/50 dark:hover:bg-muted/60 transition-opacity"
+                : cn("border border-border bg-muted/50 dark:bg-muted/40 hover:bg-muted/80 dark:hover:bg-muted/70 hover:border-foreground/30 text-foreground", weekendClass);
 
               const cellContent = (
                 <button
@@ -1480,15 +1480,15 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
                         <div
                           key={idx}
                           className={cn(
-                            "truncate rounded border border-black/50 dark:border-black/50 flex items-center gap-1",
+                            "truncate rounded border border-black/15 dark:border-white/10 flex items-center gap-1",
                             sizeClasses.duty,
                             isToday(date)
                               ? dutyColor
                                 ? ""
-                                : "bg-primary-foreground/20"
+                                : "bg-background/60 dark:bg-background/40"
                               : dutyColor
                                 ? ""
-                                : "bg-background/50"
+                                : "bg-background/60 dark:bg-background/40"
                           )}
                           style={
                             dutyColor
