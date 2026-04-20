@@ -59,7 +59,7 @@ export default function ProtectedPage() {
         error,
       } = await supabase.auth.getUser();
       if (error || !user) {
-        router.push("/auth/login");
+        router.push("/");
       } else {
         setIsAuthenticated(true);
         setUser(user);
