@@ -6,6 +6,10 @@ import { NextResponse } from "next/server";
 // для миграции на новый проект). Данные хранятся в Vercel Blob как один
 // JSON-файл: { "YYYY-MM-DD": ["Имя 1", "Имя 2"] }.
 
+// Без этого GET не читает динамические данные (нет cookies/headers/searchParams),
+// поэтому Next.js статически закэшировал бы самый первый ответ навсегда.
+export const dynamic = "force-dynamic";
+
 const PATHNAME = "temp-calendar/data.json";
 
 type CalendarData = Record<string, string[]>;
@@ -73,6 +77,7 @@ export async function POST(request: Request) {
     access: "public",
     allowOverwrite: true,
     contentType: "application/json",
+    cacheControlMaxAge: 60,
   });
 
   return NextResponse.json({ ok: true, data });
