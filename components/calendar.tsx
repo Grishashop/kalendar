@@ -727,10 +727,8 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
     let subscriptionCheckInterval: NodeJS.Timeout | null = null;
     let pollingInterval: NodeJS.Timeout | null = null;
     let isSubscribed = false;
-    let lastRealtimeEventTime = Date.now();
     let usePolling = false;
     const POLLING_INTERVAL = 10000; // 10 секунд
-    const REALTIME_TIMEOUT = 30000; // 30 секунд без событий = переключение на polling
     let isMounted = true; // Флаг для проверки, что компонент ещё смонтирован
     
     // Функция для обновления данных календаря после Realtime событий или polling
@@ -831,6 +829,60 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
       }
     };
 
+    // Функция для добавления записи в кэш при INSERT событии
+    const handleInsert = (newDuty: Duty) => {
+      if (!isMounted) return;
+      const dateKey =
+        newDuty.date_dezurztva_or_otdyh ||
+        newDuty.created_at?.split("T")[0] ||
+        "";
+      if (!dateKey) return;
+
+      setAllDuties((prev) => {
+        const existing = prev.get(dateKey) || [];
+        if (existing.some((d) => String(d.id) === String(newDuty.id))) {
+          return prev; // Уже есть в кэше
+        }
+        const updated = new Map(prev);
+        updated.set(dateKey, [...existing, newDuty]);
+        return updated;
+      });
+    };
+
+    // Функция для обновления записи в кэше при UPDATE событии
+    const handleUpdate = (updatedDuty: Duty) => {
+      if (!isMounted) return;
+      const dateKey =
+        updatedDuty.date_dezurztva_or_otdyh ||
+        updatedDuty.created_at?.split("T")[0] ||
+        "";
+      const updatedIdStr = String(updatedDuty.id);
+
+      setAllDuties((prev) => {
+        const updated = new Map(prev);
+
+        // Удаляем запись из старой даты (дата могла измениться)
+        updated.forEach((dutyArray, key) => {
+          const filtered = dutyArray.filter((d) => String(d.id) !== updatedIdStr);
+          if (filtered.length !== dutyArray.length) {
+            if (filtered.length > 0) {
+              updated.set(key, filtered);
+            } else {
+              updated.delete(key);
+            }
+          }
+        });
+
+        // Добавляем обновлённую запись по новой дате
+        if (dateKey) {
+          const existing = updated.get(dateKey) || [];
+          updated.set(dateKey, [...existing, updatedDuty]);
+        }
+
+        return updated;
+      });
+    };
+
     // Функция для удаления записи из кэша при DELETE событии
     const handleDelete = (deletedDuty: { id: number | string }) => {
       if (!isMounted) return;
@@ -887,7 +939,6 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
           },
           (payload) => {
             console.log("Realtime INSERT event received:", payload);
-            lastRealtimeEventTime = Date.now();
             // Если был включен polling, отключаем его
             if (usePolling && pollingInterval) {
               clearInterval(pollingInterval);
@@ -895,7 +946,10 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
               usePolling = false;
               console.log("Realtime is working, stopped polling");
             }
-            updateDuties();
+            // Обрабатываем INSERT напрямую из payload, без похода в БД
+            if (payload.new) {
+              handleInsert(payload.new as Duty);
+            }
           }
         )
         .on(
@@ -907,7 +961,6 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
           },
           (payload) => {
             console.log("Realtime UPDATE event received:", payload);
-            lastRealtimeEventTime = Date.now();
             // Если был включен polling, отключаем его
             if (usePolling && pollingInterval) {
               clearInterval(pollingInterval);
@@ -915,7 +968,10 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
               usePolling = false;
               console.log("Realtime is working, stopped polling");
             }
-            updateDuties();
+            // Обрабатываем UPDATE напрямую из payload, без похода в БД
+            if (payload.new) {
+              handleUpdate(payload.new as Duty);
+            }
           }
         )
         .on(
@@ -927,7 +983,6 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
           },
           (payload) => {
             console.log("Realtime DELETE event received:", payload);
-            lastRealtimeEventTime = Date.now();
             // Если был включен polling, отключаем его
             if (usePolling && pollingInterval) {
               clearInterval(pollingInterval);
@@ -939,9 +994,9 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
             if (payload.old && payload.old.id) {
               handleDelete(payload.old as { id: number | string });
             } else {
-              // Если нет данных в payload.old, перезагружаем все данные
-              console.log("No old data in DELETE payload, reloading all duties");
-              updateDuties();
+              // Если нет данных в payload.old, подтягиваем только загруженный диапазон
+              console.log("No old data in DELETE payload, reloading loaded range");
+              updateDuties(true);
             }
           }
         )
@@ -952,7 +1007,6 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
           if (status === "SUBSCRIBED") {
             console.log("Successfully subscribed to dezurstva changes");
             usePolling = false; // Realtime работает, отключаем polling
-            lastRealtimeEventTime = Date.now();
             // Очищаем таймаут переподключения при успешной подписке
             if (reconnectTimeout) {
               clearTimeout(reconnectTimeout);
@@ -1011,6 +1065,8 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
       }
       console.log("Starting polling fallback (checking for changes every", POLLING_INTERVAL / 1000, "seconds)");
       pollingInterval = setInterval(() => {
+        // Не поллим, если вкладка свёрнута/в фоне — нет смысла тратить трафик впустую
+        if (document.hidden) return;
         console.log("Polling: checking for changes...");
         // Используем fullReplace=true для полной замены данных в загруженном диапазоне
         // Это гарантирует, что удаленные записи будут удалены из кэша
@@ -1018,18 +1074,14 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
       }, POLLING_INTERVAL);
     };
 
-    // Периодическая проверка состояния подписки и переключение на polling при необходимости
+    // Периодическая проверка состояния подписки, переподключаемся при разрыве
+    // Отсутствие Realtime-событий само по себе НЕ означает поломку — это нормально,
+    // если дежурства просто давно не менялись. Реальный сбой определяется статусом
+    // подписки (CHANNEL_ERROR/TIMED_OUT/CLOSED) в колбэке .subscribe() выше.
     subscriptionCheckInterval = setInterval(() => {
       if (channel && !isSubscribed) {
         console.warn("Realtime subscription appears to be inactive, reconnecting...");
         subscribeToRealtime();
-      }
-      
-      // Если Realtime подписан, но нет событий в течение REALTIME_TIMEOUT, переключаемся на polling
-      if (isSubscribed && !usePolling && (Date.now() - lastRealtimeEventTime) > REALTIME_TIMEOUT) {
-        console.warn("No Realtime events for", REALTIME_TIMEOUT / 1000, "seconds, switching to polling");
-        usePolling = true;
-        startPolling();
       }
     }, 10000); // Проверяем каждые 10 секунд
 

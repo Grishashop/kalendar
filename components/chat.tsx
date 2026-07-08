@@ -99,12 +99,10 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     let pollingInterval: NodeJS.Timeout | null = null;
     let subscriptionCheckInterval: NodeJS.Timeout | null = null;
     let isSubscribed = false;
-    let lastRealtimeEventTime = Date.now();
     let usePolling = false;
     let isMounted = true; // Флаг для проверки, что компонент ещё смонтирован
     const POLLING_INTERVAL = 10000; // 10 секунд
-    const REALTIME_TIMEOUT = 30000; // 30 секунд без событий = переключение на polling
-    
+
     // Функция для загрузки новых сообщений (для polling)
     const fetchNewMessages = async () => {
       if (!isMounted) return; // Проверяем, что компонент ещё смонтирован
@@ -172,6 +170,8 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
       }
       console.log("Starting polling fallback for chat (checking for changes every", POLLING_INTERVAL / 1000, "seconds)");
       pollingInterval = setInterval(() => {
+        // Не поллим, если вкладка свёрнута/в фоне — нет смысла тратить трафик впустую
+        if (document.hidden) return;
         console.log("Polling: checking for new chat messages...");
         fetchNewMessages();
       }, POLLING_INTERVAL);
@@ -190,8 +190,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         },
         async (payload) => {
           console.log("Realtime event received:", payload.eventType, payload);
-          lastRealtimeEventTime = Date.now();
-          
+
           // Если был включен polling, отключаем его
           if (usePolling && pollingInterval) {
             clearInterval(pollingInterval);
@@ -343,7 +342,6 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
           if (status === "SUBSCRIBED") {
             console.log("Successfully subscribed to chat_messages changes");
             usePolling = false; // Realtime работает, отключаем polling
-            lastRealtimeEventTime = Date.now();
             // Останавливаем polling, если он был запущен
             if (pollingInterval) {
               clearInterval(pollingInterval);
@@ -374,7 +372,6 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
               const newChannelName = `chat_messages_changes_${Date.now()}_${Math.random().toString(36).substring(7)}`;
               channel = supabase.channel(newChannelName)
                 .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, async () => {
-                  lastRealtimeEventTime = Date.now();
                   if (usePolling && pollingInterval) {
                     clearInterval(pollingInterval);
                     pollingInterval = null;
@@ -388,7 +385,6 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
                   isSubscribed = newStatus === "SUBSCRIBED";
                   if (newStatus === "SUBSCRIBED") {
                     usePolling = false;
-                    lastRealtimeEventTime = Date.now();
                     if (pollingInterval) {
                       clearInterval(pollingInterval);
                       pollingInterval = null;
@@ -413,18 +409,14 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
           }
         });
 
-    // Периодическая проверка состояния подписки и переключение на polling при необходимости
+    // Периодическая проверка состояния подписки, переподключаемся при разрыве
+    // Отсутствие Realtime-событий само по себе НЕ означает поломку — это нормально,
+    // если сообщений просто давно не было. Реальный сбой определяется статусом
+    // подписки (CHANNEL_ERROR/TIMED_OUT/CLOSED) в колбэке .subscribe() выше.
     subscriptionCheckInterval = setInterval(() => {
       if (channel && !isSubscribed) {
         console.warn("Chat Realtime subscription appears to be inactive, reconnecting...");
         // Переподключение будет обработано через subscribe callback
-      }
-      
-      // Если Realtime подписан, но нет событий в течение REALTIME_TIMEOUT, переключаемся на polling
-      if (isSubscribed && !usePolling && (Date.now() - lastRealtimeEventTime) > REALTIME_TIMEOUT) {
-        console.warn("No Realtime events for chat for", REALTIME_TIMEOUT / 1000, "seconds, switching to polling");
-        usePolling = true;
-        startPolling();
       }
     }, 10000); // Проверяем каждые 10 секунд
 
