@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Lock, Unlock, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Plus, Unlock, X } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { getMoscowDate, getMoscowDateComponents, formatDateMoscow, createMoscowDate } from "@/lib/date-utils";
 
@@ -60,6 +60,32 @@ function sortByDutyType(names: string[]): string[] {
   });
 }
 
+// Типы дежурства, предлагаемые в форме редактирования. "Отпуск" встречается
+// в перенесённых из Supabase данных, поэтому оставлен в списке, но не имеет
+// отдельного цвета (см. DUTY_TYPE_COLORS).
+const DUTY_TYPES = ["Утро", "Вечер", "Отгул", "ДСВД", "Отпуск"];
+
+type DutyEntry = { name: string; type: string; approved: boolean };
+
+function parseEntry(label: string): DutyEntry {
+  const approved = !/\(не утв\.\)\s*$/.test(label);
+  const withoutSuffix = label.replace(/\s*\(не утв\.\)\s*$/, "");
+  const idx = withoutSuffix.lastIndexOf("—");
+  if (idx === -1) {
+    return { name: withoutSuffix.trim(), type: DUTY_TYPES[0], approved };
+  }
+  return {
+    name: withoutSuffix.slice(0, idx).trim(),
+    type: withoutSuffix.slice(idx + 1).trim() || DUTY_TYPES[0],
+    approved,
+  };
+}
+
+function formatEntry(entry: DutyEntry): string {
+  const base = `${entry.name} — ${entry.type}`;
+  return entry.approved ? base : `${base} (не утв.)`;
+}
+
 export default function TempCalendarPage() {
   const today = getMoscowDateComponents(getMoscowDate());
   const [year, setYear] = useState(today.year);
@@ -73,8 +99,19 @@ export default function TempCalendarPage() {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
 
   const [editingDate, setEditingDate] = useState<string | null>(null);
-  const [editingNames, setEditingNames] = useState("");
+  const [editingEntries, setEditingEntries] = useState<DutyEntry[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const knownNames = useMemo(() => {
+    const set = new Set<string>();
+    Object.values(data).forEach((list) => {
+      list.forEach((label) => {
+        const name = parseEntry(label).name;
+        if (name) set.add(name);
+      });
+    });
+    return [...set].sort((a, b) => a.localeCompare(b, "ru"));
+  }, [data]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(ADMIN_STORAGE_KEY);
@@ -123,13 +160,27 @@ export default function TempCalendarPage() {
   const openEditor = (dateKey: string) => {
     if (!isAdmin) return;
     setEditingDate(dateKey);
-    setEditingNames((data[dateKey] || []).join(", "));
+    setEditingEntries((data[dateKey] || []).map(parseEntry));
+  };
+
+  const addEntryRow = () => {
+    setEditingEntries((prev) => [...prev, { name: "", type: DUTY_TYPES[0], approved: true }]);
+  };
+
+  const removeEntryRow = (idx: number) => {
+    setEditingEntries((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateEntryRow = (idx: number, patch: Partial<DutyEntry>) => {
+    setEditingEntries((prev) => prev.map((entry, i) => (i === idx ? { ...entry, ...patch } : entry)));
   };
 
   const saveEditor = async () => {
     if (!editingDate || !adminPassword) return;
     setSaving(true);
-    const names = editingNames.split(",").map((n) => n.trim()).filter(Boolean);
+    const names = editingEntries
+      .filter((entry) => entry.name.trim())
+      .map((entry) => formatEntry({ ...entry, name: entry.name.trim() }));
     try {
       const res = await fetch("/api/temp-calendar", {
         method: "POST",
@@ -320,12 +371,56 @@ export default function TempCalendarPage() {
                 <X className="size-4" />
               </Button>
             </div>
-            <Textarea
-              value={editingNames}
-              onChange={(e) => setEditingNames(e.target.value)}
-              placeholder="Имена через запятую, например: Иванов, Петров"
-              rows={3}
-            />
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+              {editingEntries.length === 0 && (
+                <p className="text-xs text-muted-foreground">Дежурных пока нет — добавьте ниже.</p>
+              )}
+              {editingEntries.map((entry, idx) => (
+                <div key={idx} className="flex items-center gap-1.5">
+                  <Input
+                    list="temp-calendar-known-names"
+                    value={entry.name}
+                    onChange={(e) => updateEntryRow(idx, { name: e.target.value })}
+                    placeholder="Имя дежурного"
+                    className="h-8 flex-1 min-w-0"
+                  />
+                  <select
+                    value={entry.type}
+                    onChange={(e) => updateEntryRow(idx, { type: e.target.value })}
+                    className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {DUTY_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                  <Checkbox
+                    checked={entry.approved}
+                    onCheckedChange={(v) => updateEntryRow(idx, { approved: v === true })}
+                    title="Утверждено"
+                    className="shrink-0"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => removeEntryRow(idx)}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ))}
+              <datalist id="temp-calendar-known-names">
+                {knownNames.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
+              <Button variant="outline" size="sm" onClick={addEntryRow} className="w-full">
+                <Plus className="size-4" />
+                Добавить дежурного
+              </Button>
+            </div>
             <div className="flex justify-end gap-2 mt-3">
               <Button variant="outline" onClick={() => setEditingDate(null)} disabled={saving}>
                 Отмена
