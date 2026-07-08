@@ -20,6 +20,46 @@ const weekDays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 const ADMIN_STORAGE_KEY = "temp-calendar-admin-password";
 
+// Порядок отображения и цвет по типу дежурства. Тип извлекается из строки
+// вида "Имя — Тип" / "Имя — Тип (не утв.)", которую формирует import-скрипт
+// и форма редактирования (см. saveEditor).
+const DUTY_TYPE_ORDER: Record<string, number> = {
+  "Утро": 0,
+  "Вечер": 1,
+  "Отгул": 2,
+  "ДСВД": 3,
+};
+
+const DUTY_TYPE_COLORS: Record<string, string> = {
+  "Утро": "#93C5FD", // светло-синий
+  "Вечер": "#8B5A2B", // коричневый
+  "Отгул": "#EF4444", // красный
+  "ДСВД": "#FACC15", // жёлтый
+};
+
+function getContrastColor(hexColor: string): string {
+  const color = hexColor.replace("#", "");
+  const r = parseInt(color.substring(0, 2), 16);
+  const g = parseInt(color.substring(2, 4), 16);
+  const b = parseInt(color.substring(4, 6), 16);
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  return brightness > 128 ? "#000000" : "#ffffff";
+}
+
+function extractDutyType(label: string): string | null {
+  const idx = label.lastIndexOf("—");
+  if (idx === -1) return null;
+  return label.slice(idx + 1).replace(/\(не утв\.\)/, "").trim();
+}
+
+function sortByDutyType(names: string[]): string[] {
+  return [...names].sort((a, b) => {
+    const orderA = DUTY_TYPE_ORDER[extractDutyType(a) ?? ""] ?? 99;
+    const orderB = DUTY_TYPE_ORDER[extractDutyType(b) ?? ""] ?? 99;
+    return orderA - orderB;
+  });
+}
+
 export default function TempCalendarPage() {
   const today = getMoscowDateComponents(getMoscowDate());
   const [year, setYear] = useState(today.year);
@@ -238,14 +278,22 @@ export default function TempCalendarPage() {
                       {cell.day}
                     </span>
                     <div className="flex flex-col gap-0.5 overflow-hidden">
-                      {names.map((name, idx) => (
-                        <span
-                          key={idx}
-                          className="text-[11px] leading-tight bg-secondary text-secondary-foreground rounded px-1 py-0.5 truncate"
-                        >
-                          {name}
-                        </span>
-                      ))}
+                      {sortByDutyType(names).map((name, idx) => {
+                        const type = extractDutyType(name);
+                        const color = type ? DUTY_TYPE_COLORS[type] : undefined;
+                        return (
+                          <span
+                            key={idx}
+                            className={cn(
+                              "text-[11px] leading-tight rounded px-1 py-0.5 truncate",
+                              !color && "bg-secondary text-secondary-foreground",
+                            )}
+                            style={color ? { backgroundColor: color, color: getContrastColor(color) } : undefined}
+                          >
+                            {name}
+                          </span>
+                        );
+                      })}
                     </div>
                   </button>
                 );
