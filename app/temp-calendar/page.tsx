@@ -223,8 +223,12 @@ export default function TempCalendarPage() {
   };
 
   const days = useMemo(() => {
-    const firstOfMonth = createMoscowDate(year, month + 1, 1);
-    const firstWeekday = (firstOfMonth.getUTCDay() + 6) % 7; // 0 = Пн
+    // День недели календарной даты не зависит от часового пояса, поэтому
+    // считаем его напрямую по году/месяцу/дню, а не через createMoscowDate —
+    // тот сдвигает UTC-момент на предыдущий день, из-за чего getUTCDay()
+    // возвращал день недели ПРЕДЫДУЩЕГО календарного дня (баг: 1 июля 2026
+    // показывался как вторник вместо среды).
+    const firstWeekday = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7; // 0 = Пн
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     const cells: Array<{ dateKey: string; day: number } | null> = [];
