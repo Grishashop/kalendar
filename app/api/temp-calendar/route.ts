@@ -82,3 +82,34 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true, data });
 }
+
+// Полная замена всего датасета одним запросом (используется для разового
+// импорта из Supabase). В отличие от POST не делает read-modify-write,
+// поэтому не подвержен гонке при последовательных быстрых вызовах.
+export async function PUT(request: Request) {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
+  }
+
+  const { password, data } = (body ?? {}) as { password?: string; data?: unknown };
+
+  if (!process.env.TEMP_CALENDAR_PASSWORD || password !== process.env.TEMP_CALENDAR_PASSWORD) {
+    return NextResponse.json({ error: "Неверный пароль" }, { status: 401 });
+  }
+
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return NextResponse.json({ error: "Некорректные данные" }, { status: 400 });
+  }
+
+  await put(PATHNAME, JSON.stringify(data), {
+    access: "public",
+    allowOverwrite: true,
+    contentType: "application/json",
+    cacheControlMaxAge: 60,
+  });
+
+  return NextResponse.json({ ok: true, data });
+}
