@@ -53,7 +53,9 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/login") &&
     !request.nextUrl.pathname.startsWith("/auth") &&
     !request.nextUrl.pathname.startsWith("/temp-calendar") &&
-    !request.nextUrl.pathname.startsWith("/api/temp-calendar")
+    !request.nextUrl.pathname.startsWith("/api/temp-calendar") &&
+    !request.nextUrl.pathname.startsWith("/market") &&
+    !request.nextUrl.pathname.startsWith("/api/market")
   ) {
     // no user — отправляем на главную (просмотровый режим),
     // а не на форму входа. Логин доступен по кнопке "Войти".
