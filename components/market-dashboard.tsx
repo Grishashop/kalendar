@@ -517,6 +517,9 @@ export function MarketDashboard() {
               </div>
             </header>
 
+            {/* Котировки: в компактном режиме уже, чтобы убрать пустоту.
+                Комментарий и подвал остаются на всю ширину. */}
+            <div className={compact ? "max-w-2xl" : ""}>
             {/* Индексы */}
             <section className={compact ? "mt-3" : "mt-5"}>
               {data.indices.length > 0 ? (
@@ -588,6 +591,7 @@ export function MarketDashboard() {
                 <EmptyNote />
               )}
             </section>
+            </div>
 
             {/* Комментарий */}
             <section className={compact ? "mt-3" : "mt-5"}>
