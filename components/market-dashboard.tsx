@@ -284,6 +284,7 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
     >
       <div className="truncate text-xs text-slate-400" title={q.name}>
         {q.name}
+        {q.contract && <span className="text-slate-500"> · {q.contract}</span>}
       </div>
       <div
         className={`mt-1 font-semibold text-slate-100 ${compact ? "text-base" : "text-lg"}`}
@@ -294,6 +295,16 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
       <div className={compact ? "text-xs" : "mt-0.5 text-sm"}>
         <ChangeBadge pct={q.changePct} />
       </div>
+      {q.future && q.future.last !== null && (
+        <div
+          className={`mt-1 border-t border-slate-800 pt-1 text-slate-400 ${compact ? "text-[10px]" : "text-[11px]"}`}
+        >
+          Фьюч. {fmtNum(q.future.last)}{" "}
+          <span className={changeColor(q.future.changePct)}>
+            {fmtPct(q.future.changePct)}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

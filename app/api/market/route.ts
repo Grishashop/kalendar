@@ -22,19 +22,21 @@ export interface Quote {
   high: number | null;
   low: number | null;
   unit: string;
+  contract?: string; // краткое имя фьючерсного контракта (для сырья — сама котировка это фьючерс)
+  future?: FutureInfo | null; // ближайший фьючерс рядом со спот-значением (валюты)
 }
 
-// Ближайший фьючерсный контракт на индекс (значение — в пунктах индекса).
-export interface IndexFuture {
-  secid: string; // напр. "MXU6"
-  shortName: string; // напр. "MIX-9.26"
+// Ближайший фьючерс; last уже приведён к единицам базового актива.
+export interface FutureInfo {
+  secid: string; // напр. "MXU6", "SiU6"
+  shortName: string; // напр. "MIX-9.26", "Si-9.26"
   last: number | null;
   changePct: number | null;
 }
 
 // Индекс + его ближайший фьючерс (в той же карточке на дашборде).
 export interface IndexQuote extends Quote {
-  future: IndexFuture | null;
+  future: FutureInfo | null;
 }
 
 export interface MarketResponse {
@@ -144,6 +146,16 @@ function lastOrNull(v: unknown): number | null {
   return n && n !== 0 ? n : null;
 }
 
+// Цена фьючерса: последняя сделка, иначе расчётная цена (в выходные сделок нет).
+function futuresPrice(m: Record<string, unknown>): number | null {
+  return lastOrNull(m["LAST"]) ?? lastOrNull(m["SETTLEPRICE"]);
+}
+
+// Изменение фьючерса: к пред. закрытию, иначе к пред. расчётной цене.
+function futuresChange(m: Record<string, unknown>): number | null {
+  return num(m["LASTTOPREVPRICE"]) ?? num(m["SETTLETOPREVSETTLEPRC"]);
+}
+
 // --- URL источников ---
 
 const URL_INDICES =
@@ -155,7 +167,7 @@ const URL_STOCKS =
   "&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME&marketdata.columns=SECID,LAST,OPEN,LASTTOPREVPRICE,HIGH,LOW,UPDATETIME";
 
 const URL_FORTS =
-  "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?assets=BR,NG,GOLD,MIX,RTS&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,UPDATETIME";
+  "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?assets=BR,NG,GOLD,MIX,RTS,Si,Eu,CNY&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,SETTLEPRICE,SETTLETOPREVSETTLEPRC,UPDATETIME";
 
 const URL_CBR = "https://www.cbr-xml-daily.ru/daily_json.js";
 
@@ -231,7 +243,7 @@ function buildStocks(json: unknown): Quote[] {
   });
 }
 
-// Фронт-месяц серии ASSETCODE: строка с LAST > 0 и минимальной датой экспирации.
+// Фронт-месяц серии ASSETCODE: строка с валидной ценой и минимальной экспирацией.
 function frontContract(
   secRows: Record<string, unknown>[],
   md: Map<string, Record<string, unknown>>,
@@ -240,7 +252,7 @@ function frontContract(
   const series = secRows
     .filter((r) => r["ASSETCODE"] === assetCode)
     .map((r) => ({ r, m: md.get(String(r["SECID"])) }))
-    .filter(({ m }) => m && lastOrNull(m["LAST"]) !== null)
+    .filter(({ m }) => m && futuresPrice(m) !== null)
     .sort((a, b) =>
       String(a.r["LASTTRADEDATE"]).localeCompare(String(b.r["LASTTRADEDATE"])),
     );
@@ -250,9 +262,8 @@ function frontContract(
 
 function buildCommodities(json: unknown): Quote[] {
   const secRows = parseIssTable(json, "securities");
-  const mdRows = parseIssTable(json, "marketdata");
   const md = new Map<string, Record<string, unknown>>();
-  mdRows.forEach((r) => {
+  parseIssTable(json, "marketdata").forEach((r) => {
     if (typeof r["SECID"] === "string") md.set(r["SECID"], r);
   });
 
@@ -266,49 +277,60 @@ function buildCommodities(json: unknown): Quote[] {
   for (const { code, name, unit } of assets) {
     const front = frontContract(secRows, md, code);
     if (!front) continue;
+    // Котировка сырья на MOEX — это и есть ближайший фьючерс; подписываем контракт.
     out.push({
       secid: String(front.r["SECID"]),
       name,
-      last: lastOrNull(front.m["LAST"]),
-      changePct: num(front.m["LASTTOPREVPRICE"]),
+      last: futuresPrice(front.m),
+      changePct: futuresChange(front.m),
       open: null,
       high: null,
       low: null,
       unit,
+      contract: String(front.r["SHORTNAME"] ?? ""),
     });
   }
   return out;
 }
 
-// Ближайшие фьючерсы на индексы: MIX → Индекс МосБиржи, RTS → Индекс РТС.
-// Контракты котируются в пунктах индекса ×100, поэтому last делим на 100.
-function buildIndexFutures(json: unknown): Record<string, IndexFuture> {
+// Ближайшие фьючерсы по списку {asset → key, scale}. scale приводит цену
+// контракта к единицам базового актива: индексы ×100, Si/Eu ×1000, CNY ×1.
+function buildFuturesMap(
+  json: unknown,
+  pairs: { asset: string; key: string; scale: number }[],
+): Record<string, FutureInfo> {
   const secRows = parseIssTable(json, "securities");
-  const mdRows = parseIssTable(json, "marketdata");
   const md = new Map<string, Record<string, unknown>>();
-  mdRows.forEach((r) => {
+  parseIssTable(json, "marketdata").forEach((r) => {
     if (typeof r["SECID"] === "string") md.set(r["SECID"], r);
   });
-
-  const pairs: { asset: string; index: string }[] = [
-    { asset: "MIX", index: "IMOEX" },
-    { asset: "RTS", index: "RTSI" },
-  ];
-
-  const out: Record<string, IndexFuture> = {};
-  for (const { asset, index } of pairs) {
+  const out: Record<string, FutureInfo> = {};
+  for (const { asset, key, scale } of pairs) {
     const front = frontContract(secRows, md, asset);
     if (!front) continue;
-    const raw = lastOrNull(front.m["LAST"]);
-    out[index] = {
+    const raw = futuresPrice(front.m);
+    out[key] = {
       secid: String(front.r["SECID"]),
       shortName: String(front.r["SHORTNAME"] ?? ""),
-      last: raw === null ? null : raw / 100,
-      changePct: num(front.m["LASTTOPREVPRICE"]),
+      last: raw === null ? null : raw / scale,
+      changePct: futuresChange(front.m),
     };
   }
   return out;
 }
+
+// MIX → Индекс МосБиржи, RTS → Индекс РТС (котируются в пунктах ×100).
+const INDEX_FUTURES = [
+  { asset: "MIX", key: "IMOEX", scale: 100 },
+  { asset: "RTS", key: "RTSI", scale: 100 },
+];
+
+// Si → доллар, Eu → евро (цена ×1000), CNY → юань (цена уже в рублях, ×1).
+const CURRENCY_FUTURES = [
+  { asset: "Si", key: "USD", scale: 1000 },
+  { asset: "Eu", key: "EUR", scale: 1000 },
+  { asset: "CNY", key: "CNY", scale: 1 },
+];
 
 function buildCurrencies(cbrJson: unknown, cnyJson: unknown): Quote[] {
   const out: Quote[] = [];
@@ -438,16 +460,30 @@ export async function GET() {
       | string
       | undefined) ?? null;
 
-  const indexFutures = fortsJson ? buildIndexFutures(fortsJson) : {};
+  const indexFutures = fortsJson ? buildFuturesMap(fortsJson, INDEX_FUTURES) : {};
   const indices: IndexQuote[] = (
     indicesJson ? buildIndices(indicesJson) : []
   ).map((q) => ({ ...q, future: indexFutures[q.secid] ?? null }));
+
+  const currencyFutures = fortsJson
+    ? buildFuturesMap(fortsJson, CURRENCY_FUTURES)
+    : {};
+  const currencies: Quote[] = buildCurrencies(cbrJson, cnyJson).map((q) => {
+    const code = q.secid.startsWith("USD")
+      ? "USD"
+      : q.secid.startsWith("EUR")
+        ? "EUR"
+        : q.secid.startsWith("CNY")
+          ? "CNY"
+          : null;
+    return { ...q, future: code ? (currencyFutures[code] ?? null) : null };
+  });
 
   const body: MarketResponse = {
     indices,
     stocks: stocksJson ? buildStocks(stocksJson) : [],
     commodities: fortsJson ? buildCommodities(fortsJson) : [],
-    currencies: buildCurrencies(cbrJson, cnyJson),
+    currencies,
     sparklines: {
       imoex: buildSparkline(val(sparkImoexR)),
       rtsi: buildSparkline(val(sparkRtsiR)),
