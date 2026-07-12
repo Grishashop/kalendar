@@ -160,13 +160,15 @@ function generateCommentary(data: MarketResponse): string {
 function Sparkline({
   values,
   color,
+  compact = false,
 }: {
   values: number[];
   color: string;
+  compact?: boolean;
 }) {
   if (values.length < 2) return null;
-  const w = 120;
-  const h = 40;
+  const w = compact ? 90 : 120;
+  const h = compact ? 30 : 40;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
@@ -208,7 +210,15 @@ function ChangeBadge({ pct }: { pct: number | null }) {
   );
 }
 
-function IndexCard({ q, spark }: { q: Quote; spark: number[] }) {
+function IndexCard({
+  q,
+  spark,
+  compact,
+}: {
+  q: Quote;
+  spark: number[];
+  compact: boolean;
+}) {
   const strokeColor =
     q.changePct === null || q.changePct === 0
       ? "#cbd5e1"
@@ -216,48 +226,85 @@ function IndexCard({ q, spark }: { q: Quote; spark: number[] }) {
         ? "#34d399"
         : "#f87171";
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-      <div className="flex items-start justify-between gap-4">
+    <div
+      className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-3" : "p-5"}`}
+    >
+      <div
+        className={`flex items-start justify-between ${compact ? "gap-3" : "gap-4"}`}
+      >
         <div className="min-w-0">
-          <div className="text-sm text-slate-400">{q.name}</div>
-          <div className="mt-1 text-3xl font-bold text-slate-100">
+          <div className={`text-slate-400 ${compact ? "text-xs" : "text-sm"}`}>
+            {q.name}
+          </div>
+          <div
+            className={`mt-1 font-bold text-slate-100 ${compact ? "text-2xl" : "text-3xl"}`}
+          >
             {fmtNum(q.last)}{" "}
-            <span className="text-base font-normal text-slate-400">
+            <span
+              className={`font-normal text-slate-400 ${compact ? "text-sm" : "text-base"}`}
+            >
               {q.unit}
             </span>
           </div>
-          <div className="mt-1 text-lg">
+          <div className={compact ? "mt-0.5 text-base" : "mt-1 text-lg"}>
             <ChangeBadge pct={q.changePct} />
           </div>
         </div>
-        <Sparkline values={spark} color={strokeColor} />
+        <Sparkline values={spark} color={strokeColor} compact={compact} />
       </div>
-      <div className="mt-3 text-xs text-slate-400">
+      <div
+        className={`text-slate-400 ${compact ? "mt-2 text-[11px]" : "mt-3 text-xs"}`}
+      >
         Откр {fmtNum(q.open)} · Макс {fmtNum(q.high)} · Мин {fmtNum(q.low)}
       </div>
     </div>
   );
 }
 
-function MiniCard({ q }: { q: Quote }) {
+function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-3">
+    <div
+      className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-2" : "p-3"}`}
+    >
       <div className="truncate text-xs text-slate-400" title={q.name}>
         {q.name}
       </div>
-      <div className="mt-1 text-lg font-semibold text-slate-100">
+      <div
+        className={`mt-1 font-semibold text-slate-100 ${compact ? "text-base" : "text-lg"}`}
+      >
         {fmtNum(q.last)}{" "}
         <span className="text-xs font-normal text-slate-400">{q.unit}</span>
       </div>
-      <div className="mt-0.5 text-sm">
+      <div className={compact ? "text-xs" : "mt-0.5 text-sm"}>
         <ChangeBadge pct={q.changePct} />
       </div>
     </div>
   );
 }
 
-function StockRow({ q }: { q: Quote }) {
-  // Мини-полоска изменения: ширина ∝ |changePct|, потолок 5%.
+function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
+  // Компактно: одна строка без полоски — минимум высоты, максимум плотности.
+  if (compact) {
+    return (
+      <div className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate text-sm font-medium text-slate-100">
+            {q.name}
+          </span>
+          <span className="text-[10px] text-slate-500">{q.secid}</span>
+        </div>
+        <div className="flex shrink-0 items-baseline gap-2">
+          <span className="text-sm font-semibold text-slate-100">
+            {fmtNum(q.last)} ₽
+          </span>
+          <span className="text-xs">
+            <ChangeBadge pct={q.changePct} />
+          </span>
+        </div>
+      </div>
+    );
+  }
+  // Расширенно: мини-полоска изменения, ширина ∝ |changePct|, потолок 5%.
   const magnitude =
     q.changePct === null ? 0 : Math.min(Math.abs(q.changePct), 5) / 5;
   const barColor =
@@ -307,6 +354,7 @@ export function MarketDashboard() {
   const [comment, setComment] = useState("");
   const isEditedRef = useRef(false);
   const commentRef = useRef<HTMLTextAreaElement>(null);
+  const [compact, setCompact] = useState(false);
 
   const load = useCallback(
     async (regenerate: boolean) => {
@@ -351,6 +399,11 @@ export function MarketDashboard() {
     void load(true);
   }, [load]);
 
+  // Плотность запоминается между открытиями (удобно для повторных скриншотов).
+  useEffect(() => {
+    if (localStorage.getItem("market-compact") === "1") setCompact(true);
+  }, []);
+
   // Авто-высота textarea под содержимое.
   useLayoutEffect(() => {
     const el = commentRef.current;
@@ -392,6 +445,18 @@ export function MarketDashboard() {
             {loading ? "Обновление…" : "Обновить"}
           </button>
           <button
+            onClick={() =>
+              setCompact((c) => {
+                const next = !c;
+                localStorage.setItem("market-compact", next ? "1" : "0");
+                return next;
+              })
+            }
+            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
+          >
+            {compact ? "Расширенный вид" : "Компактный вид"}
+          </button>
+          <button
             onClick={() => {
               if (data) {
                 setComment(generateCommentary(data));
@@ -426,13 +491,19 @@ export function MarketDashboard() {
 
         {/* Зона дашборда (скриншотится) */}
         {data && (
-          <div className="rounded-2xl border border-slate-800 bg-[#0b1220] p-6">
+          <div
+            className={`rounded-2xl border border-slate-800 bg-[#0b1220] ${compact ? "p-4" : "p-6"}`}
+          >
             {/* Шапка */}
-            <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-4">
+            <header
+              className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 ${compact ? "pb-3" : "pb-4"}`}
+            >
               <div>
                 <div className="flex items-center gap-2">
                   <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
-                  <h1 className="text-xl font-bold text-slate-100">
+                  <h1
+                    className={`font-bold text-slate-100 ${compact ? "text-lg" : "text-xl"}`}
+                  >
                     Российский рынок · Обзор
                   </h1>
                 </div>
@@ -447,13 +518,16 @@ export function MarketDashboard() {
             </header>
 
             {/* Индексы */}
-            <section className="mt-5">
+            <section className={compact ? "mt-3" : "mt-5"}>
               {data.indices.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div
+                  className={`grid grid-cols-1 sm:grid-cols-2 ${compact ? "gap-3" : "gap-4"}`}
+                >
                   {data.indices.map((q) => (
                     <IndexCard
                       key={q.secid}
                       q={q}
+                      compact={compact}
                       spark={
                         q.secid === "IMOEX"
                           ? data.sparklines.imoex
@@ -468,14 +542,22 @@ export function MarketDashboard() {
             </section>
 
             {/* Валюты и сырьё */}
-            <section className="mt-5">
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
+            <section className={compact ? "mt-3" : "mt-5"}>
+              <h2
+                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${compact ? "mb-1.5" : "mb-2"}`}
+              >
                 Валюты и сырьё
               </h2>
               {data.currencies.length + data.commodities.length > 0 ? (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                <div
+                  className={
+                    compact
+                      ? "grid grid-cols-3 gap-2 sm:grid-cols-6"
+                      : "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+                  }
+                >
                   {[...data.currencies, ...data.commodities].map((q) => (
-                    <MiniCard key={q.secid} q={q} />
+                    <MiniCard key={q.secid} q={q} compact={compact} />
                   ))}
                 </div>
               ) : (
@@ -484,14 +566,22 @@ export function MarketDashboard() {
             </section>
 
             {/* Акции */}
-            <section className="mt-5">
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
+            <section className={compact ? "mt-3" : "mt-5"}>
+              <h2
+                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${compact ? "mb-1.5" : "mb-2"}`}
+              >
                 Голубые фишки
               </h2>
               {data.stocks.length > 0 ? (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div
+                  className={
+                    compact
+                      ? "grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3"
+                      : "grid grid-cols-1 gap-2 sm:grid-cols-2"
+                  }
+                >
                   {data.stocks.map((q) => (
-                    <StockRow key={q.secid} q={q} />
+                    <StockRow key={q.secid} q={q} compact={compact} />
                   ))}
                 </div>
               ) : (
@@ -500,11 +590,15 @@ export function MarketDashboard() {
             </section>
 
             {/* Комментарий */}
-            <section className="mt-5">
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
+            <section className={compact ? "mt-3" : "mt-5"}>
+              <h2
+                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${compact ? "mb-1.5" : "mb-2"}`}
+              >
                 Комментарий
               </h2>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+              <div
+                className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-3" : "p-4"}`}
+              >
                 <textarea
                   ref={commentRef}
                   value={comment}
@@ -512,7 +606,7 @@ export function MarketDashboard() {
                     setComment(e.target.value);
                     isEditedRef.current = true;
                   }}
-                  rows={3}
+                  rows={compact ? 2 : 3}
                   className="w-full resize-none border-none bg-transparent text-slate-100 focus:outline-none"
                   placeholder="Комментарий к рынку…"
                 />
@@ -520,7 +614,9 @@ export function MarketDashboard() {
             </section>
 
             {/* Подвал */}
-            <footer className="mt-5 border-t border-slate-800 pt-3 text-xs text-slate-500">
+            <footer
+              className={`border-t border-slate-800 text-xs text-slate-500 ${compact ? "mt-3 pt-2" : "mt-5 pt-3"}`}
+            >
               Источники: Московская биржа (ISS), ЦБ РФ · Не является
               индивидуальной инвестиционной рекомендацией · Сформировано в{" "}
               {genTime}
