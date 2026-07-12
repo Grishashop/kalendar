@@ -349,7 +349,7 @@ function EmptyNote() {
 
 export function MarketDashboard() {
   const [data, setData] = useState<MarketResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const isEditedRef = useRef(false);
@@ -395,10 +395,6 @@ export function MarketDashboard() {
     [],
   );
 
-  useEffect(() => {
-    void load(true);
-  }, [load]);
-
   // Плотность запоминается между открытиями (удобно для повторных скриншотов).
   useEffect(() => {
     if (localStorage.getItem("market-compact") === "1") setCompact(true);
@@ -436,7 +432,8 @@ export function MarketDashboard() {
     <div className="min-h-screen bg-[#0b1220] px-4 py-6 text-slate-100">
       <div className="mx-auto max-w-5xl">
         {/* Панель управления — вне зоны скриншота */}
-        <div className="mb-4 flex flex-wrap items-center gap-2 print:hidden">
+        {data && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 print:hidden">
           <button
             onClick={() => void load(false)}
             disabled={loading}
@@ -468,7 +465,8 @@ export function MarketDashboard() {
           >
             Сбросить комментарий
           </button>
-        </div>
+          </div>
+        )}
 
         {/* Ошибка */}
         {error && !data && (
@@ -486,8 +484,42 @@ export function MarketDashboard() {
           </div>
         )}
 
-        {/* Скелетон */}
-        {loading && !data && !error && <DashboardSkeleton />}
+        {/* Первый заход: данные грузятся только по кнопке */}
+        {!data && !loading && !error && (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
+            <div className="flex items-center justify-center gap-2">
+              <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
+              <h1 className="text-xl font-bold text-slate-100">
+                Российский рынок · Обзор
+              </h1>
+            </div>
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
+              Актуальные котировки индексов, акций, валют и сырья загружаются по
+              запросу.
+            </p>
+            <button
+              onClick={() => void load(true)}
+              className="mt-5 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500"
+            >
+              Загрузить данные
+            </button>
+          </div>
+        )}
+
+        {/* Идёт первая загрузка */}
+        {loading && !data && (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
+            <div className="flex items-center justify-center gap-3">
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-emerald-400" />
+              <span className="text-lg font-medium text-slate-100">
+                Загружаем котировки…
+              </span>
+            </div>
+            <p className="mt-2 text-sm text-slate-400">
+              Это может занять несколько секунд — подождите, пожалуйста.
+            </p>
+          </div>
+        )}
 
         {/* Зона дашборда (скриншотится) */}
         {data && (
@@ -627,28 +659,6 @@ export function MarketDashboard() {
             </footer>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function DashboardSkeleton() {
-  return (
-    <div className="animate-pulse rounded-2xl border border-slate-800 bg-[#0b1220] p-6">
-      <div className="h-8 w-64 rounded bg-slate-800" />
-      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="h-28 rounded-xl bg-slate-900" />
-        <div className="h-28 rounded-xl bg-slate-900" />
-      </div>
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-20 rounded-xl bg-slate-900" />
-        ))}
-      </div>
-      <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {Array.from({ length: 10 }).map((_, i) => (
-          <div key={i} className="h-12 rounded-lg bg-slate-900" />
-        ))}
       </div>
     </div>
   );
