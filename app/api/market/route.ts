@@ -24,8 +24,21 @@ export interface Quote {
   unit: string;
 }
 
+// Ближайший фьючерсный контракт на индекс (значение — в пунктах индекса).
+export interface IndexFuture {
+  secid: string; // напр. "MXU6"
+  shortName: string; // напр. "MIX-9.26"
+  last: number | null;
+  changePct: number | null;
+}
+
+// Индекс + его ближайший фьючерс (в той же карточке на дашборде).
+export interface IndexQuote extends Quote {
+  future: IndexFuture | null;
+}
+
 export interface MarketResponse {
-  indices: Quote[];
+  indices: IndexQuote[];
   stocks: Quote[];
   commodities: Quote[];
   currencies: Quote[];
@@ -142,7 +155,7 @@ const URL_STOCKS =
   "&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME&marketdata.columns=SECID,LAST,OPEN,LASTTOPREVPRICE,HIGH,LOW,UPDATETIME";
 
 const URL_FORTS =
-  "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?assets=BR,NG,GOLD&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,UPDATETIME";
+  "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?assets=BR,NG,GOLD,MIX,RTS&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,UPDATETIME";
 
 const URL_CBR = "https://www.cbr-xml-daily.ru/daily_json.js";
 
@@ -218,6 +231,23 @@ function buildStocks(json: unknown): Quote[] {
   });
 }
 
+// Фронт-месяц серии ASSETCODE: строка с LAST > 0 и минимальной датой экспирации.
+function frontContract(
+  secRows: Record<string, unknown>[],
+  md: Map<string, Record<string, unknown>>,
+  assetCode: string,
+): { r: Record<string, unknown>; m: Record<string, unknown> } | null {
+  const series = secRows
+    .filter((r) => r["ASSETCODE"] === assetCode)
+    .map((r) => ({ r, m: md.get(String(r["SECID"])) }))
+    .filter(({ m }) => m && lastOrNull(m["LAST"]) !== null)
+    .sort((a, b) =>
+      String(a.r["LASTTRADEDATE"]).localeCompare(String(b.r["LASTTRADEDATE"])),
+    );
+  const front = series[0];
+  return front && front.m ? { r: front.r, m: front.m } : null;
+}
+
 function buildCommodities(json: unknown): Quote[] {
   const secRows = parseIssTable(json, "securities");
   const mdRows = parseIssTable(json, "marketdata");
@@ -234,18 +264,8 @@ function buildCommodities(json: unknown): Quote[] {
 
   const out: Quote[] = [];
   for (const { code, name, unit } of assets) {
-    // Серии одного ASSETCODE; фронт-месяц — с LAST > 0 и минимальной LASTTRADEDATE.
-    const series = secRows
-      .filter((r) => r["ASSETCODE"] === code)
-      .map((r) => ({ r, m: md.get(String(r["SECID"])) }))
-      .filter(({ m }) => m && lastOrNull(m["LAST"]) !== null)
-      .sort((a, b) =>
-        String(a.r["LASTTRADEDATE"]).localeCompare(
-          String(b.r["LASTTRADEDATE"]),
-        ),
-      );
-    const front = series[0];
-    if (!front || !front.m) continue;
+    const front = frontContract(secRows, md, code);
+    if (!front) continue;
     out.push({
       secid: String(front.r["SECID"]),
       name,
@@ -256,6 +276,36 @@ function buildCommodities(json: unknown): Quote[] {
       low: null,
       unit,
     });
+  }
+  return out;
+}
+
+// Ближайшие фьючерсы на индексы: MIX → Индекс МосБиржи, RTS → Индекс РТС.
+// Контракты котируются в пунктах индекса ×100, поэтому last делим на 100.
+function buildIndexFutures(json: unknown): Record<string, IndexFuture> {
+  const secRows = parseIssTable(json, "securities");
+  const mdRows = parseIssTable(json, "marketdata");
+  const md = new Map<string, Record<string, unknown>>();
+  mdRows.forEach((r) => {
+    if (typeof r["SECID"] === "string") md.set(r["SECID"], r);
+  });
+
+  const pairs: { asset: string; index: string }[] = [
+    { asset: "MIX", index: "IMOEX" },
+    { asset: "RTS", index: "RTSI" },
+  ];
+
+  const out: Record<string, IndexFuture> = {};
+  for (const { asset, index } of pairs) {
+    const front = frontContract(secRows, md, asset);
+    if (!front) continue;
+    const raw = lastOrNull(front.m["LAST"]);
+    out[index] = {
+      secid: String(front.r["SECID"]),
+      shortName: String(front.r["SHORTNAME"] ?? ""),
+      last: raw === null ? null : raw / 100,
+      changePct: num(front.m["LASTTOPREVPRICE"]),
+    };
   }
   return out;
 }
@@ -388,8 +438,13 @@ export async function GET() {
       | string
       | undefined) ?? null;
 
+  const indexFutures = fortsJson ? buildIndexFutures(fortsJson) : {};
+  const indices: IndexQuote[] = (
+    indicesJson ? buildIndices(indicesJson) : []
+  ).map((q) => ({ ...q, future: indexFutures[q.secid] ?? null }));
+
   const body: MarketResponse = {
-    indices: indicesJson ? buildIndices(indicesJson) : [],
+    indices,
     stocks: stocksJson ? buildStocks(stocksJson) : [],
     commodities: fortsJson ? buildCommodities(fortsJson) : [],
     currencies: buildCurrencies(cbrJson, cnyJson),

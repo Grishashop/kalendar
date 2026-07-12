@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { MarketResponse, Quote } from "@/app/api/market/route";
+import type { MarketResponse, Quote, IndexQuote } from "@/app/api/market/route";
 
 // Фиксированная тёмная тема финансового терминала. Внутри «зоны скриншота»
 // используются ТОЛЬКО жёстко закодированные Tailwind-классы (не семантические
@@ -215,7 +215,7 @@ function IndexCard({
   spark,
   compact,
 }: {
-  q: Quote;
+  q: IndexQuote;
   spark: number[];
   compact: boolean;
 }) {
@@ -257,6 +257,22 @@ function IndexCard({
       >
         Откр {fmtNum(q.open)} · Макс {fmtNum(q.high)} · Мин {fmtNum(q.low)}
       </div>
+      {q.future && q.future.last !== null && (
+        <div
+          className={`flex items-center justify-between gap-2 border-t border-slate-800 ${compact ? "mt-2 pt-2" : "mt-3 pt-3"}`}
+        >
+          <span
+            className={`text-slate-400 ${compact ? "text-[11px]" : "text-xs"}`}
+          >
+            Фьючерс {q.future.shortName}
+          </span>
+          <span
+            className={`text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
+          >
+            {fmtNum(q.future.last)} п. <ChangeBadge pct={q.future.changePct} />
+          </span>
+        </div>
+      )}
     </div>
   );
 }
