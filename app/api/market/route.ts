@@ -7,6 +7,9 @@ import { NextResponse } from "next/server";
 // Без этого GET статически закэшировал бы первый ответ навсегда — данные рынка
 // должны обновляться на каждый запрос.
 export const dynamic = "force-dynamic";
+// Запас по времени: 6 внешних запросов с ретраями. Без этого дефолтный
+// лимит функции (10 c на Hobby) мог бы обрывать медленные ретраи.
+export const maxDuration = 30;
 
 // --- Контракт ответа (его же использует клиент) ---
 
@@ -82,24 +85,40 @@ function parseIssTable(
   });
 }
 
-async function fetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} для ${url}`);
-  return res.json();
-}
+// MOEX ISS иногда отклоняет/таймаутит отдельные из параллельных запросов
+// (Vercel в США, MOEX в Москве + троттлинг по IP). Поэтому: браузерный
+// User-Agent, ограниченный таймаут на попытку и ретраи с backoff+jitter.
+const FETCH_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (compatible; LavochkaMarketDashboard/1.0; +https://lavochka.vercel.app)",
+  Accept: "application/json, text/javascript, */*",
+};
 
-// ЦБ отдаёт Content-Type application/javascript → res.json() падает.
-async function fetchCbr(url: string): Promise<unknown> {
-  const res = await fetch(url, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} для ${url}`);
-  const text = await res.text();
-  return JSON.parse(text);
+async function fetchJson(url: string, attempts = 3): Promise<unknown> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        headers: FETCH_HEADERS,
+        signal: AbortSignal.timeout(9000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} для ${url}`);
+      // Парсим из текста: ЦБ отдаёт application/javascript, на котором
+      // res.json() падает; для MOEX (application/json) JSON.parse тоже валиден.
+      const text = await res.text();
+      return JSON.parse(text);
+    } catch (e) {
+      lastErr = e;
+      if (i < attempts - 1) {
+        const delay = 300 * (i + 1) + Math.floor(Math.random() * 300);
+        const { promise, resolve } = Promise.withResolvers<void>();
+        setTimeout(resolve, delay);
+        await promise;
+      }
+    }
+  }
+  throw lastErr;
 }
 
 function num(v: unknown): number | null {
@@ -336,7 +355,7 @@ export async function GET() {
     fetchJson(URL_INDICES),
     fetchJson(URL_STOCKS),
     fetchJson(URL_FORTS),
-    fetchCbr(URL_CBR),
+    fetchJson(URL_CBR),
     fetchJson(URL_CNY),
     fetchJson(candlesUrl("SNDX", "IMOEX", today)),
     fetchJson(candlesUrl("RTSI", "RTSI", today)),

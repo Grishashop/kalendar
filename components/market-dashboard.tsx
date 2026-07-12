@@ -313,12 +313,24 @@ export function MarketDashboard() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/market", { cache: "no-store" });
-        const json = await res.json();
-        if (!res.ok || json.error) {
-          throw new Error(json.error ?? "Ошибка загрузки");
+        // Источники MOEX иногда отвечают частично; каждый запрос к /api/market
+        // заново тянет данные, поэтому при пустых индексах/акциях повторяем.
+        let md: MarketResponse | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const res = await fetch("/api/market", { cache: "no-store" });
+          const json = await res.json();
+          if (!res.ok || json.error) {
+            throw new Error(json.error ?? "Ошибка загрузки");
+          }
+          md = json as MarketResponse;
+          if (md.indices.length > 0 && md.stocks.length > 0) break;
+          if (attempt < 2) {
+            const { promise, resolve } = Promise.withResolvers<void>();
+            setTimeout(resolve, 800);
+            await promise;
+          }
         }
-        const md = json as MarketResponse;
+        if (!md) throw new Error("Не удалось загрузить данные");
         setData(md);
         // Перегенерируем комментарий только если пользователь его не правил
         // (или явно запросил сброс).
