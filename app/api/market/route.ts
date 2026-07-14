@@ -10,8 +10,8 @@ import { NextResponse } from "next/server";
 export const revalidate = 8;
 // Регион для Node.js serverless-функций на Vercel задаётся только через
 // vercel.json ("regions"), route-level preferredRegion — no-op без runtime="edge".
-// Запас по времени: 6 внешних запросов с ретраями. Без этого дефолтный
-// лимит функции мог бы обрывать медленные ретраи.
+// Запас по времени: 9 внешних запросов параллельно, с ретраями. Без этого
+// дефолтный лимит функции мог бы обрывать медленные ретраи.
 export const maxDuration = 30;
 
 // --- Контракт ответа (его же использует клиент) ---
@@ -47,6 +47,9 @@ export interface MarketResponse {
   stocks: Quote[];
   commodities: Quote[];
   currencies: Quote[];
+  // Топ-20 по обороту (VALTODAY, ₽) за сессию — для «Расширенного вида».
+  topStocksByVolume: Quote[];
+  topFuturesByVolume: Quote[];
   sparklines: { imoex: number[]; rtsi: number[] };
   moexTime: string | null;
   cbrDate: string | null;
@@ -175,6 +178,14 @@ const URL_STOCKS =
 const URL_FORTS =
   "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?assets=BR,NG,GOLD,MIX,RTS,Si,Eu,CNY&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,SETTLEPRICE,SETTLETOPREVSETTLEPRC,UPDATETIME";
 
+// Всё TQBR-табло (без фильтра по тикерам) — источник для «топ-20 по обороту».
+const URL_STOCKS_ALL =
+  "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME&marketdata.columns=SECID,LAST,OPEN,LASTTOPREVPRICE,HIGH,LOW,UPDATETIME,VALTODAY";
+
+// Все контракты FORTS (без фильтра по assets) — источник для «топ-20 фьючерсов по обороту».
+const URL_FORTS_ALL =
+  "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,SETTLEPRICE,SETTLETOPREVSETTLEPRC,UPDATETIME,VALTODAY";
+
 const URL_CBR = "https://www.cbr-xml-daily.ru/daily_json.js";
 
 const URL_CNY =
@@ -249,6 +260,37 @@ function buildStocks(json: unknown): Quote[] {
   });
 }
 
+// Топ-20 акций TQBR по обороту (VALTODAY, ₽) за сессию — весь список бумаг,
+// а не только фиксированные "голубые фишки" из STOCK_TICKERS.
+function buildTopStocks(json: unknown): Quote[] {
+  const names = new Map<string, string>();
+  parseIssTable(json, "securities").forEach((r) => {
+    if (typeof r["SECID"] === "string")
+      names.set(r["SECID"], String(r["SHORTNAME"] ?? ""));
+  });
+  return parseIssTable(json, "marketdata")
+    .filter((r) => typeof r["SECID"] === "string" && lastOrNull(r["LAST"]) !== null)
+    .map((r) => {
+      const secid = String(r["SECID"]);
+      return {
+        quote: {
+          secid,
+          name: STOCK_NAMES[secid] ?? names.get(secid) ?? secid,
+          last: lastOrNull(r["LAST"]),
+          changePct: num(r["LASTTOPREVPRICE"]),
+          open: lastOrNull(r["OPEN"]),
+          high: lastOrNull(r["HIGH"]),
+          low: lastOrNull(r["LOW"]),
+          unit: "₽",
+        } satisfies Quote,
+        volume: num(r["VALTODAY"]) ?? 0,
+      };
+    })
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 20)
+    .map(({ quote }) => quote);
+}
+
 // Фронт-месяц серии ASSETCODE: строка с валидной ценой и минимальной экспирацией.
 function frontContract(
   secRows: Record<string, unknown>[],
@@ -264,6 +306,62 @@ function frontContract(
     );
   const front = series[0];
   return front && front.m ? { r: front.r, m: front.m } : null;
+}
+
+// Человекочитаемые названия самых ликвидных базовых активов FORTS; для
+// остальных (акции, менее ходовые товары) используем сам код актива.
+const FUTURES_ASSET_NAMES: Record<string, string> = {
+  BR: "Brent",
+  GOLD: "Золото",
+  NG: "Природный газ",
+  MIX: "Индекс МосБиржи",
+  RTS: "Индекс РТС",
+  Si: "Доллар США",
+  Eu: "Евро",
+  CNY: "Юань",
+};
+
+// Топ-20 ближайших по экспирации фьючерсных контрактов FORTS по обороту
+// (VALTODAY, ₽): по каждому базовому активу берём фронт-месяц, затем сортируем
+// весь набор фронтов по обороту. Дальние месяцы почти всегда неликвидны, так
+// что "ближайшие" и "самые торгуемые" на практике совпадают.
+function buildTopFutures(json: unknown): Quote[] {
+  const secRows = parseIssTable(json, "securities");
+  const md = new Map<string, Record<string, unknown>>();
+  parseIssTable(json, "marketdata").forEach((r) => {
+    if (typeof r["SECID"] === "string") md.set(r["SECID"], r);
+  });
+  const assetCodes = new Set(
+    secRows
+      .map((r) => (typeof r["ASSETCODE"] === "string" ? r["ASSETCODE"] : ""))
+      .filter(Boolean),
+  );
+  const fronts: { r: Record<string, unknown>; m: Record<string, unknown>; volume: number }[] =
+    [];
+  for (const asset of assetCodes) {
+    const front = frontContract(secRows, md, asset);
+    if (!front) continue;
+    const volume = num(front.m["VALTODAY"]) ?? 0;
+    if (volume <= 0) continue;
+    fronts.push({ ...front, volume });
+  }
+  return fronts
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 20)
+    .map(({ r, m }) => {
+      const asset = String(r["ASSETCODE"] ?? "");
+      return {
+        secid: String(r["SECID"]),
+        name: FUTURES_ASSET_NAMES[asset] ?? asset,
+        last: futuresPrice(m),
+        changePct: futuresChange(m),
+        open: null,
+        high: null,
+        low: null,
+        unit: "",
+        contract: String(r["SHORTNAME"] ?? ""),
+      } satisfies Quote;
+    });
 }
 
 function buildCommodities(json: unknown): Quote[] {
@@ -429,6 +527,8 @@ export async function GET() {
     cnyR,
     sparkImoexR,
     sparkRtsiR,
+    topStocksR,
+    topFuturesR,
   ] = await Promise.allSettled([
     fetchJson(URL_INDICES),
     fetchJson(URL_STOCKS),
@@ -437,6 +537,8 @@ export async function GET() {
     fetchJson(URL_CNY),
     fetchJson(candlesUrl("SNDX", "IMOEX", today)),
     fetchJson(candlesUrl("RTSI", "RTSI", today)),
+    fetchJson(URL_STOCKS_ALL),
+    fetchJson(URL_FORTS_ALL),
   ]);
 
   const val = <T,>(r: PromiseSettledResult<T>): T | null =>
@@ -490,6 +592,8 @@ export async function GET() {
     stocks: stocksJson ? buildStocks(stocksJson) : [],
     commodities: fortsJson ? buildCommodities(fortsJson) : [],
     currencies,
+    topStocksByVolume: val(topStocksR) ? buildTopStocks(val(topStocksR)) : [],
+    topFuturesByVolume: val(topFuturesR) ? buildTopFutures(val(topFuturesR)) : [],
     sparklines: {
       imoex: buildSparkline(val(sparkImoexR)),
       rtsi: buildSparkline(val(sparkRtsiR)),

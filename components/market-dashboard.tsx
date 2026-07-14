@@ -368,6 +368,35 @@ function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
   );
 }
 
+// Плотная строка для топ-20 списков (акции/фьючерсы по обороту) в
+// «Расширенном виде» — 40 позиций суммарно, полноразмерная StockRow тут
+// была бы слишком высокой. Вторая метка — тикер акции или код контракта
+// фьючерса (q.contract), цена без принудительного "₽" (у фьючерсов бывают
+// другие единицы, а у общего топа по всем активам мы их не знаем).
+function VolumeRow({ q }: { q: Quote }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+      <div className="flex min-w-0 items-baseline gap-1.5">
+        <span className="truncate text-sm font-medium text-slate-100">
+          {q.name}
+        </span>
+        <span className="text-[10px] text-slate-500">
+          {q.contract ?? q.secid}
+        </span>
+      </div>
+      <div className="flex shrink-0 items-baseline gap-2">
+        <span className="text-sm font-semibold text-slate-100">
+          {fmtNum(q.last)}
+          {q.unit ? ` ${q.unit}` : ""}
+        </span>
+        <span className="text-xs">
+          <ChangeBadge pct={q.changePct} />
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function EmptyNote() {
   return <div className="text-sm text-slate-500">Нет данных</div>;
 }
@@ -600,29 +629,60 @@ export function MarketDashboard() {
               )}
             </section>
 
-            {/* Акции */}
-            <section className={compact ? "mt-3" : "mt-5"}>
-              <h2
-                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${compact ? "mb-1.5" : "mb-2"}`}
-              >
-                Голубые фишки
-              </h2>
-              {data.stocks.length > 0 ? (
-                <div
-                  className={
-                    compact
-                      ? "grid grid-cols-2 gap-2"
-                      : "grid grid-cols-1 gap-2 sm:grid-cols-2"
-                  }
-                >
-                  {data.stocks.map((q) => (
-                    <StockRow key={q.secid} q={q} compact={compact} />
-                  ))}
+            {/* Акции: компактный вид — фиксированные "голубые фишки" (10 бумаг,
+                для скриншотов); расширенный вид — два столбца топ-20 по обороту
+                (акции TQBR / ближайшие фьючерсы FORTS), независимо от
+                STOCK_TICKERS. */}
+            {compact ? (
+              <section className="mt-3">
+                <h2 className="mb-1.5 text-sm font-semibold uppercase tracking-wide text-slate-400">
+                  Голубые фишки
+                </h2>
+                {data.stocks.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {data.stocks.map((q) => (
+                      <StockRow key={q.secid} q={q} compact={compact} />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyNote />
+                )}
+              </section>
+            ) : (
+              <section className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
+                    Акции · топ-20 по обороту
+                  </h2>
+                  {data.topStocksByVolume.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2">
+                      {data.topStocksByVolume.map((q) => (
+                        <VolumeRow key={q.secid} q={q} />
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyNote />
+                  )}
                 </div>
-              ) : (
-                <EmptyNote />
-              )}
-            </section>
+                <div>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                    Фьючерсы · топ-20 по обороту
+                  </h2>
+                  <p className="mb-2 text-[11px] text-slate-500">
+                    Цена контракта как на бирже, без приведения к споту
+                  </p>
+                  {data.topFuturesByVolume.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-2">
+                      {data.topFuturesByVolume.map((q) => (
+                        <VolumeRow key={q.secid} q={q} />
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyNote />
+                  )}
+                </div>
+              </section>
+            )}
             </div>
 
             {/* Комментарий */}
