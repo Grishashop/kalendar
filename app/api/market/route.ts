@@ -8,11 +8,10 @@ import { NextResponse } from "next/server";
 // Data Cache без похода на MOEX/ЦБ, а данные всё равно обновляются раз в 8с —
 // этого достаточно для рынка, который не тикает быстрее пары секунд.
 export const revalidate = 8;
-// MOEX и ЦБ РФ физически в Москве; функция по умолчанию крутится в US —
-// каждый из 7 внешних запросов платит трансатлантический RTT. fra1 ближе.
-export const preferredRegion = "fra1";
+// Регион для Node.js serverless-функций на Vercel задаётся только через
+// vercel.json ("regions"), route-level preferredRegion — no-op без runtime="edge".
 // Запас по времени: 6 внешних запросов с ретраями. Без этого дефолтный
-// лимит функции (10 c на Hobby) мог бы обрывать медленные ретраи.
+// лимит функции мог бы обрывать медленные ретраи.
 export const maxDuration = 30;
 
 // --- Контракт ответа (его же использует клиент) ---
@@ -118,7 +117,10 @@ async function fetchJson(url: string, attempts = 3): Promise<unknown> {
   for (let i = 0; i < attempts; i++) {
     try {
       const res = await fetch(url, {
-        cache: "no-store",
+        // cache:"no-store" тут держал бы весь route handler динамическим
+        // (Next.js правило: один no-store фетч — вся ветка не кэшируется),
+        // что сводило на нет export const revalidate выше.
+        next: { revalidate: 8 },
         headers: FETCH_HEADERS,
         signal: AbortSignal.timeout(9000),
       });
@@ -496,7 +498,8 @@ export async function GET() {
     cbrDate,
   };
 
-  return NextResponse.json(body, {
-    headers: { "Cache-Control": "no-store" },
-  });
+  // Без явного Cache-Control Next применяет кэш из export const revalidate
+  // выше; жёсткий no-store тут (как раньше при force-dynamic) сводил бы его
+  // на нет для КАЖДОГО успешного ответа.
+  return NextResponse.json(body);
 }
