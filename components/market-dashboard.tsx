@@ -412,6 +412,12 @@ export function MarketDashboard() {
     [],
   );
 
+  // Данные грузим сразу при открытии страницы: /api/market теперь кэшируется
+  // на 8с (CDN), так что автозагрузка не бьёт по MOEX на каждый визит.
+  useEffect(() => {
+    void load(false);
+  }, [load]);
+
   // Плотность запоминается между открытиями (удобно для повторных скриншотов).
   useEffect(() => {
     if (localStorage.getItem("market-compact") === "1") setCompact(true);
@@ -500,31 +506,8 @@ export function MarketDashboard() {
             </button>
           </div>
         )}
-
-        {/* Первый заход: данные грузятся только по кнопке */}
-        {!data && !loading && !error && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
-            <div className="flex items-center justify-center gap-2">
-              <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
-              <h1 className="text-xl font-bold text-slate-100">
-                Российский рынок · Обзор
-              </h1>
-            </div>
-            <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
-              Актуальные котировки индексов, акций, валют и сырья загружаются по
-              запросу.
-            </p>
-            <button
-              onClick={() => void load(true)}
-              className="mt-5 rounded-lg bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-emerald-500"
-            >
-              Загрузить данные
-            </button>
-          </div>
-        )}
-
-        {/* Идёт первая загрузка */}
-        {loading && !data && (
+        {/* Первый заход и повторные обновления: спиннер до первых данных */}
+        {!data && !error && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
             <div className="flex items-center justify-center gap-3">
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-emerald-400" />
