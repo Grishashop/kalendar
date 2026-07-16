@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Coins, Droplet, Flame, Landmark, Globe } from "lucide-react";
 import type { MarketResponse, Quote, IndexQuote } from "@/app/api/market/route";
 
 // Фиксированная тёмная тема финансового терминала. Внутри «зоны скриншота»
@@ -9,28 +10,28 @@ import type { MarketResponse, Quote, IndexQuote } from "@/app/api/market/route";
 
 // --- Логотипы бумаг ---
 
-// Локальные логотипы (public/logos/) только для фиксированных "голубых
-// фишек" — надёжно и без внешних зависимостей на рендере. Для остальных
-// бумаг (топ-20 по обороту, фьючерсы) состав тикеров динамический и
-// источника логотипов под них нет — там просто аватар с инициалами.
-const LOGO_EXT: Record<string, string> = {
-  SBER: "svg",
-  GAZP: "svg",
-  LKOH: "svg",
-  ROSN: "svg",
-  NVTK: "svg",
-  GMKN: "svg",
-  YDEX: "svg",
-  T: "svg",
-  VTBR: "png",
-  PLZL: "svg",
+// Локальные логотипы (public/logos/) — 50 самых ликвидных тикеров TQBR
+// (голубые фишки + типовой состав топ-20 по обороту), скачаны с
+// invest-brands.cdn-tinkoff.ru по официальным брендам. Тикеров вне этого
+// набора (редкие бумаги в топ-20, фьючерсы) — просто аватар с инициалами;
+// <img onError> переключает на него, если файла нет.
+const KNOWN_LOGOS: Record<string, true> = {
+  ABIO: true, AFKS: true, AFLT: true, AKRN: true, ALRS: true, ASTR: true,
+  BSPB: true, CBOM: true, CHMF: true, DIAS: true, ENPG: true, ETLN: true,
+  FEES: true, FLOT: true, GAZP: true, GMKN: true, HYDR: true, IRAO: true,
+  KMAZ: true, LEAS: true, LKOH: true, LSNG: true, MGNT: true, MOEX: true,
+  MTLR: true, MTSS: true, NLMK: true, NVTK: true, OZON: true, PHOR: true,
+  PLZL: true, POSI: true, RASP: true, ROSN: true, RTKM: true, RUAL: true,
+  SBER: true, SGZH: true, SMLT: true, SNGS: true, SNGSP: true, SVCB: true,
+  T: true, TATN: true, TATNP: true, UPRO: true, VKCO: true, VTBR: true,
+  WUSH: true, YDEX: true,
 };
 
 function StockLogo({ secid, compact }: { secid: string; compact: boolean }) {
-  const ext = LOGO_EXT[secid];
+  const [failed, setFailed] = useState(false);
   const size = compact ? 20 : 28;
-  const box = `shrink-0 rounded-md ${compact ? "" : ""}`;
-  if (!ext) {
+  const box = "shrink-0 rounded-md";
+  if (failed || !KNOWN_LOGOS[secid]) {
     return (
       <div
         className={`${box} flex items-center justify-center bg-slate-800 text-[9px] font-medium text-slate-400`}
@@ -42,14 +43,61 @@ function StockLogo({ secid, compact }: { secid: string; compact: boolean }) {
   }
   return (
     <img
-      src={`/logos/${secid}.${ext}`}
+      src={`/logos/${secid}.png`}
       alt=""
       width={size}
       height={size}
+      onError={() => setFailed(true)}
       className={`${box} bg-white object-contain p-0.5`}
       style={{ width: size, height: size }}
     />
   );
+}
+
+// --- Иконки валют, сырья и индексов ---
+
+// Флаги эмитента валюты — не требуют картинок и одинаково хорошо смотрятся
+// на тёмном фоне без белой подложки (в отличие от растровых лого бумаг).
+const CURRENCY_FLAG: Record<string, string> = {
+  USD_CBR: "🇺🇸",
+  EUR_CBR: "🇪🇺",
+  CNY_CBR: "🇨🇳",
+  CNYRUB_TOM: "🇨🇳",
+};
+
+function CurrencyFlag({ secid }: { secid: string }) {
+  const flag = CURRENCY_FLAG[secid];
+  if (!flag) return null;
+  return (
+    <span className="shrink-0 text-base leading-none" aria-hidden>
+      {flag}
+    </span>
+  );
+}
+
+// Сырьё определяем по name (q.secid — это код фронт-контракта, "BRQ6" и
+// т.п., меняется по экспирациям и не годится в ключ).
+const COMMODITY_ICON: Record<
+  string,
+  { Icon: typeof Droplet; className: string }
+> = {
+  Brent: { Icon: Droplet, className: "text-amber-500" },
+  Золото: { Icon: Coins, className: "text-yellow-400" },
+  "Природный газ": { Icon: Flame, className: "text-orange-400" },
+};
+
+function CommodityIcon({ name }: { name: string }) {
+  const cfg = COMMODITY_ICON[name];
+  if (!cfg) return null;
+  const { Icon, className } = cfg;
+  return <Icon className={`h-4 w-4 shrink-0 ${className}`} aria-hidden />;
+}
+
+// Индексы — не бумаги с брендом, а расчётные показатели биржи; монохромная
+// иконка вместо лого, тон приглушённый под тёмную тему (без белых подложек).
+function IndexIcon({ secid }: { secid: string }) {
+  const Icon = secid === "RTSI" ? Globe : Landmark;
+  return <Icon className="h-4 w-4 shrink-0 text-slate-500" aria-hidden />;
 }
 
 // --- Форматирование (ru-RU) ---
@@ -278,7 +326,10 @@ function IndexCard({
         className={`flex items-start justify-between ${compact ? "gap-3" : "gap-4"}`}
       >
         <div className="min-w-0">
-          <div className={`text-slate-400 ${compact ? "text-xs" : "text-sm"}`}>
+          <div
+            className={`flex items-center gap-1.5 text-slate-400 ${compact ? "text-xs" : "text-sm"}`}
+          >
+            <IndexIcon secid={q.secid} />
             {q.name}
           </div>
           <div
@@ -327,7 +378,12 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
     <div
       className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-2" : "p-3"}`}
     >
-      <div className="truncate text-xs text-slate-400" title={q.name}>
+      <div
+        className="flex items-center gap-1.5 truncate text-xs text-slate-400"
+        title={q.name}
+      >
+        <CurrencyFlag secid={q.secid} />
+        <CommodityIcon name={q.name} />
         {q.name}
         {q.contract && <span className="text-slate-500"> · {q.contract}</span>}
       </div>
