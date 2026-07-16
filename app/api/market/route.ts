@@ -167,8 +167,10 @@ function futuresChange(m: Record<string, unknown>): number | null {
 
 // --- URL источников ---
 
+// IMOEX2 = тот же индекс МосБиржи, но считается по всем сессиям
+// (07:00–23:50 МСК), а не только по основной (~10:00–18:50), как IMOEX.
 const URL_INDICES =
-  "https://iss.moex.com/iss/engines/stock/markets/index/securities.json?securities=IMOEX,RTSI&iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,BOARDID,CURRENTVALUE,LASTCHANGEPRC,OPENVALUE,HIGH,LOW,UPDATETIME";
+  "https://iss.moex.com/iss/engines/stock/markets/index/securities.json?securities=IMOEX2,RTSI&iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,BOARDID,CURRENTVALUE,LASTCHANGEPRC,OPENVALUE,HIGH,LOW,UPDATETIME";
 
 const URL_STOCKS =
   "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?securities=" +
@@ -208,13 +210,17 @@ function todayMsk(): string {
 
 function buildIndices(json: unknown): Quote[] {
   const rows = parseIssTable(json, "marketdata");
-  const meta: Record<string, { name: string }> = {
-    IMOEX: { name: "Индекс МосБиржи" },
-    RTSI: { name: "Индекс РТС" },
+  // secid — внутренний идентификатор для клиента/сопоставления с фьючерсом;
+  // source — реальный SECID в ответе ISS. IMOEX2 приходит под своим кодом,
+  // но остаётся тем же индексом МосБиржи, поэтому наружу отдаём как "IMOEX".
+  const meta: Record<string, { source: string; name: string }> = {
+    IMOEX: { source: "IMOEX2", name: "Индекс МосБиржи" },
+    RTSI: { source: "RTSI", name: "Индекс РТС" },
   };
   return ["IMOEX", "RTSI"]
     .map((secid) => {
-      const candidates = rows.filter((r) => r["SECID"] === secid);
+      const source = meta[secid].source;
+      const candidates = rows.filter((r) => r["SECID"] === source);
       // Один SECID может прийти с нескольких бордов — берём первую строку с ненулевым CURRENTVALUE.
       const r =
         candidates.find((c) => num(c["CURRENTVALUE"])) ?? candidates[0];
@@ -535,7 +541,7 @@ export async function GET() {
     fetchJson(URL_FORTS),
     fetchJson(URL_CBR),
     fetchJson(URL_CNY),
-    fetchJson(candlesUrl("SNDX", "IMOEX", today)),
+    fetchJson(candlesUrl("SNDX", "IMOEX2", today)),
     fetchJson(candlesUrl("RTSI", "RTSI", today)),
     fetchJson(URL_STOCKS_ALL),
     fetchJson(URL_FORTS_ALL),
