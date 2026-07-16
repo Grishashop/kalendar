@@ -7,6 +7,51 @@ import type { MarketResponse, Quote, IndexQuote } from "@/app/api/market/route";
 // используются ТОЛЬКО жёстко закодированные Tailwind-классы (не семантические
 // токены bg-background и т.п.) — иначе светлая тема приложения испортит скриншот.
 
+// --- Логотипы бумаг ---
+
+// Локальные логотипы (public/logos/) только для фиксированных "голубых
+// фишек" — надёжно и без внешних зависимостей на рендере. Для остальных
+// бумаг (топ-20 по обороту, фьючерсы) состав тикеров динамический и
+// источника логотипов под них нет — там просто аватар с инициалами.
+const LOGO_EXT: Record<string, string> = {
+  SBER: "svg",
+  GAZP: "svg",
+  LKOH: "svg",
+  ROSN: "svg",
+  NVTK: "svg",
+  GMKN: "svg",
+  YDEX: "svg",
+  T: "svg",
+  VTBR: "png",
+  PLZL: "svg",
+};
+
+function StockLogo({ secid, compact }: { secid: string; compact: boolean }) {
+  const ext = LOGO_EXT[secid];
+  const size = compact ? 20 : 28;
+  const box = `shrink-0 rounded-md ${compact ? "" : ""}`;
+  if (!ext) {
+    return (
+      <div
+        className={`${box} flex items-center justify-center bg-slate-800 text-[9px] font-medium text-slate-400`}
+        style={{ width: size, height: size }}
+      >
+        {secid.slice(0, 2)}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={`/logos/${secid}.${ext}`}
+      alt=""
+      width={size}
+      height={size}
+      className={`${box} bg-white object-contain p-0.5`}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
 // --- Форматирование (ru-RU) ---
 
 function fmtNum(v: number | null, maxFrac = 2): string {
@@ -314,7 +359,8 @@ function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
   if (compact) {
     return (
       <div className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-        <div className="flex min-w-0 items-baseline gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <StockLogo secid={q.secid} compact />
           <span className="truncate text-sm font-medium text-slate-100">
             {q.name}
           </span>
@@ -342,6 +388,7 @@ function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
         : "bg-red-400";
   return (
     <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+      <StockLogo secid={q.secid} compact={false} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate font-medium text-slate-100">
@@ -376,7 +423,8 @@ function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
 function VolumeRow({ q }: { q: Quote }) {
   return (
     <div className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-      <div className="flex min-w-0 items-baseline gap-1.5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <StockLogo secid={q.secid} compact />
         <span className="truncate text-sm font-medium text-slate-100">
           {q.name}
         </span>
