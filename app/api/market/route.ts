@@ -206,6 +206,12 @@ function todayMsk(): string {
   return now.toISOString().slice(0, 10);
 }
 
+// Текущее время по МСК (UTC+3) в формате HH:MM:SS.
+function nowMsk(): string {
+  const now = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  return now.toISOString().slice(11, 19);
+}
+
 // --- Преобразователи блоков ---
 
 function buildIndices(json: unknown): Quote[] {
@@ -508,14 +514,27 @@ function buildSparkline(json: unknown): number[] {
 }
 
 // Максимальное UPDATETIME (HH:MM:SS) среди строк, у которых оно есть.
+// UPDATETIME — время суток без даты, поэтому голое сравнение строк ломается
+// на границе сессий: пока утром бумаги TQBR ещё не торговались, их
+// UPDATETIME хранит вчерашнее закрытие ("19:00:00"), а индекс (расширенная
+// сессия) уже тикает сегодня ("09:38:12") — лексикографически "19" > "09",
+// и в шапку попадало вчерашнее время. Отбрасываем значения позже текущего
+// момента по МСК: сегодня такое время ещё не наступило, значит это остаток
+// вчерашней сессии.
 function maxUpdateTime(...quoteJsons: unknown[]): string | null {
+  const now = nowMsk();
   let max: string | null = null;
   for (const json of quoteJsons) {
     const rows = parseIssTable(json, "marketdata");
     for (const r of rows) {
       const t = r["UPDATETIME"];
-      if (typeof t === "string" && /^\d{2}:\d{2}:\d{2}$/.test(t)) {
-        if (max === null || t > max) max = t;
+      if (
+        typeof t === "string" &&
+        /^\d{2}:\d{2}:\d{2}$/.test(t) &&
+        t <= now &&
+        (max === null || t > max)
+      ) {
+        max = t;
       }
     }
   }
