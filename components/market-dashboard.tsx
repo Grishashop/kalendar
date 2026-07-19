@@ -624,6 +624,18 @@ export function MarketDashboard() {
           </div>
         )}
 
+        {/* Обновление после первого успешного захода упало, но старые
+            данные ещё есть — раньше это было НЕВИДИМО (баннер ниже
+            рендерится только когда data === null), кнопка просто молча
+            возвращалась в "Обновить". Пользователь не понимал, почему
+            "обновление не работает", и жал повторно вслепую. */}
+        {error && data && (
+          <div className="mb-4 rounded-lg border border-red-900/60 bg-red-950/30 px-3 py-2 text-sm text-red-300 print:hidden">
+            Не удалось обновить: {error}. Показаны данные последнего
+            успешного обновления — попробуйте ещё раз.
+          </div>
+        )}
+
         {/* Ошибка */}
         {error && !data && (
           <div className="rounded-xl border border-red-900 bg-slate-900 p-6 text-center">
@@ -679,6 +691,9 @@ export function MarketDashboard() {
                   <div>Данные MOEX на {data.moexTime.slice(0, 5)} МСК</div>
                 )}
                 {cbrDateRu && <div>Курсы ЦБ на {cbrDateRu}</div>}
+                <div className="mt-0.5 text-slate-500">
+                  Акции/фьючерсы/юань — задержка до 15 мин, индексы — реалтайм
+                </div>
               </div>
             </header>
 
