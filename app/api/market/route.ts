@@ -124,17 +124,22 @@ const FETCH_HEADERS: Record<string, string> = {
   Accept: "application/json, text/javascript, */*",
 };
 
-async function fetchJson(url: string, attempts = 3): Promise<unknown> {
+async function fetchJson(
+  url: string,
+  attempts = 3,
+  timeoutMs = 9000,
+): Promise<unknown> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
       const res = await fetch(url, {
-        // cache:"no-store" тут держал бы весь route handler динамическим
-        // (Next.js правило: один no-store фетч — вся ветка не кэшируется),
-        // что сводило на нет export const revalidate выше.
+        // no-store тут отключил бы Data Cache для этого fetch — с
+        // export const dynamic = "force-dynamic" на сам route handler это
+        // не влияет, но next.revalidate всё равно даёт дедупликацию
+        // одинаковых URL в пределах 8с без похода на MOEX/ЦБ.
         next: { revalidate: 8 },
         headers: FETCH_HEADERS,
-        signal: AbortSignal.timeout(9000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status} для ${url}`);
       // Парсим из текста: ЦБ отдаёт application/javascript, на котором
@@ -267,8 +272,18 @@ function lastCloseBefore(
   return null;
 }
 
-// Один запрос, без ретраев (best-effort: неудача просто оставляет
-// исходное значение биржи, а не роняет весь ответ).
+// Раньше все ~50-70 инструментов запускались одним Promise.allSettled
+// сразу — сами эти 50-70 одновременных соединений на iss.moex.com (поверх
+// первой волны из 9 параллельных запросов чуть выше в GET()) и оказались
+// причиной массовых ConnectTimeoutError, воспроизведённых вживую при
+// повторных нагрузочных прогонах: после них IMOEX периодически откатывался
+// на исходное значение MOEX (снова от пятницы) — не из-за логики
+// пересчёта, а потому что сам запрос свечи для него не успевал выполниться
+// без единой попытки повтора. Поэтому: короткий таймаут на попытку (не
+// ждём долго — это необязательное косметическое улучшение, а не основные
+// данные), пул из CANDLE_CONCURRENCY одновременных запросов вместо залпа,
+// и общий бюджет времени CANDLE_BUDGET_MS — то, что не успело, остаётся
+// с исходным значением MOEX, а не задерживает и не роняет ответ.
 async function weekendPrevClose(
   spec: CandleSpec,
   secid: string,
@@ -280,11 +295,40 @@ async function weekendPrevClose(
       `https://iss.moex.com/iss/engines/${spec.engine}/markets/${spec.market}/boards/${spec.board}` +
       `/securities/${encodeURIComponent(secid)}/candles.json` +
       `?interval=60&iss.meta=off&candles.columns=close,begin&from=${from}`;
-    const json = await fetchJson(url, 1);
+    const json = await fetchJson(url, 1, 4000);
     return lastCloseBefore(parseIssTable(json, "candles"), today);
   } catch {
     return null;
   }
+}
+
+const CANDLE_CONCURRENCY = 10;
+const CANDLE_BUDGET_MS = 10000;
+
+// Пул из `limit` воркеров разбирает `jobs` по очереди, пока не кончится
+// список или не истечёт общий бюджет времени. IMOEX/RTSI кладём в начало
+// jobs (см. ниже) — они самые заметные на дашборде и самые дешёвые (2 из
+// 50-70), поэтому должны успеть даже если бюджет исчерпается на хвосте
+// списка (акции топ-20 по обороту, дальние фьючерсы).
+async function weekendPrevCloseBatch(
+  jobs: { secid: string; spec: CandleSpec }[],
+  today: string,
+  from: string,
+): Promise<Map<string, number>> {
+  const prevClose = new Map<string, number>();
+  const deadline = Date.now() + CANDLE_BUDGET_MS;
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < jobs.length && Date.now() < deadline) {
+      const job = jobs[next++];
+      const v = await weekendPrevClose(job.spec, job.secid, today, from);
+      if (v !== null) prevClose.set(job.secid, v);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(CANDLE_CONCURRENCY, jobs.length) }, worker),
+  );
+  return prevClose;
 }
 
 // Пересчитывает changePct у всех котировок в body от цены строго до
@@ -319,21 +363,13 @@ async function applyWeekendCorrection(
     : [];
 
   const jobs: { secid: string; spec: CandleSpec }[] = [
-    ...[...stockSecids].map((secid) => ({ secid, spec: TQBR_SPEC })),
-    ...[...futuresSecids].map((secid) => ({ secid, spec: FORTS_SPEC })),
     ...indexSecids.map((secid) => ({ secid, spec: INDEX_SPEC[secid] })),
+    ...[...stockSecids].map((secid) => ({ secid, spec: TQBR_SPEC })),
     ...cnySecids.map((secid) => ({ secid, spec: CETS_SPEC })),
+    ...[...futuresSecids].map((secid) => ({ secid, spec: FORTS_SPEC })),
   ];
 
-  const results = await Promise.allSettled(
-    jobs.map((j) => weekendPrevClose(j.spec, j.secid, today, from)),
-  );
-
-  const prevClose = new Map<string, number>();
-  jobs.forEach((j, i) => {
-    const r = results[i];
-    if (r.status === "fulfilled" && r.value !== null) prevClose.set(j.secid, r.value);
-  });
+  const prevClose = await weekendPrevCloseBatch(jobs, today, from);
 
   // Нескейленный текущий last для фьючерсов — из ALL-фьючерсов JSON,
   // покрывает любой контракт вплоть до попавших в топ-20 по обороту.
@@ -706,8 +742,8 @@ function maxUpdateTime(...quoteJsons: unknown[]): string | null {
 }
 
 export async function GET() {
+  const startedAt = Date.now();
   const today = todayMsk();
-
   const [
     indicesR,
     stocksR,
@@ -791,15 +827,20 @@ export async function GET() {
     cbrDate,
   };
 
-  // Только по выходным (МСК) — на буднях PREVDATE у MOEX и так корректен,
-  // лишние запросы не нужны.
+  // Только по выходным (МСК) — на буднях PREVDATE у MOEX и так корректен.
+  // Плюс защита от переполнения maxDuration: если первая волна запросов
+  // уже съела больше COOL_TIME_MS — MOEX сегодня медленный/троттлит, и
+  // вторая волна (коррекция) рискует не уложиться в лимит функции и
+  // уронить ВЕСЬ ответ вместо того, чтобы просто оставить часть котировок
+  // с исходным (не всегда точным для выходных) значением MOEX. Лучше
+  // отдать то, что уже есть, чем ничего.
   const mskWeekday = new Date(Date.now() + 3 * 60 * 60 * 1000).getUTCDay();
-  if (mskWeekday === 0 || mskWeekday === 6) {
+  const COOL_TIME_MS = 12000;
+  if ((mskWeekday === 0 || mskWeekday === 6) && Date.now() - startedAt < COOL_TIME_MS) {
     await applyWeekendCorrection(body, val(topFuturesR));
   }
 
-  // Без явного Cache-Control Next применяет кэш из export const revalidate
-  // выше; жёсткий no-store тут (как раньше при force-dynamic) сводил бы его
-  // на нет для КАЖДОГО успешного ответа.
+  // dynamic = "force-dynamic" выше уже не даёт Next.js кэшировать сам
+  // ответ route handler'а — отдельный Cache-Control тут не нужен.
   return NextResponse.json(body);
 }
