@@ -4,10 +4,19 @@ import { NextResponse } from "next/server";
 // (Московская биржа ISS + курсы ЦБ РФ через зеркало cbr-xml-daily.ru).
 // Все запросы идут server-side, поэтому клиент делает один запрос и обходит CORS.
 
-// Короткий TTL вместо force-dynamic: большинство визитов отдаются из кэша
-// Data Cache без похода на MOEX/ЦБ, а данные всё равно обновляются раз в 8с —
-// этого достаточно для рынка, который не тикает быстрее пары секунд.
-export const revalidate = 8;
+// force-dynamic вместо revalidate: с revalidate Next.js кеширует ОТВЕТ
+// самого route handler'а (ISR/Full Route Cache) со stale-while-revalidate —
+// после 8с первый запрос отдаёт старые данные и в фоне триггерит
+// перегенерацию, а свежие данные видит только СЛЕДУЮЩИЙ запрос. Для
+// «нажал обновить — должно быть свежее» это не годится (воспроизведено:
+// после `next build && next start` заголовок `x-nextjs-cache: STALE`
+// держался несколько запросов подряд, пока MOEX отвечал медленно).
+// force-dynamic отключает только этот слой (Full Route Cache); Data Cache
+// у fetch() внутри GET() (next.revalidate: 8 в fetchJson) продолжает
+// работать как раньше — большинство визитов всё ещё не ходят на MOEX/ЦБ,
+// но сам route handler выполняется на каждый запрос, поэтому обновление
+// в браузере детерминированно отдаёт актуальные (не более чем 8с) данные.
+export const dynamic = "force-dynamic";
 // Регион для Node.js serverless-функций на Vercel задаётся только через
 // vercel.json ("regions"), route-level preferredRegion — no-op без runtime="edge".
 // Запас по времени: 9 внешних запросов параллельно, с ретраями. Без этого
