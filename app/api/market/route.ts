@@ -339,11 +339,26 @@ async function weekendPrevCloseBatch(
 async function applyWeekendCorrection(
   body: MarketResponse,
   fortsAllJson: unknown,
+  referenceDate: string | undefined,
 ): Promise<void> {
   const today = todayMsk();
+  // from = PREVDATE у MOEX (последняя дата, которую сама биржа считает
+  // валидным предыдущим торговым днём), а НЕ фиксированное число дней
+  // назад. Фиксированный запас (сначала 7, потом "для надёжности" 45)
+  // оказался хуже: при обычных выходных (реальный разрыв — 1-3 дня) окно
+  // в 45 дней захватывает 40+ дней ОБЫЧНОЙ активной торговли — это тысячи
+  // часовых баров, а candles.json у MOEX ISS молча обрезает ответ до 500
+  // строк. Живой пример поймали: 45-дневный запрос вернул только первые
+  // 500 строк (~12 дней от начала окна), самые свежие данные потерялись
+  // из ответа, и коррекция пересчитала SBER на -17,5% вместо верных -1,5%.
+  // Окно от PREVDATE масштабируется само: 2-3 дня на обычные выходные,
+  // сколько угодно на длинную приостановку торгов (а там строк всё равно
+  // мало — торгов-то не было). При недоступном PREVDATE — запасной вариант
+  // в 10 дней (короче старого "надёжного" 7, но достаточно для типичных
+  // праздников и гарантированно не упрётся в лимит при обычной неделе).
   const fromDate = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  fromDate.setUTCDate(fromDate.getUTCDate() - 7);
-  const from = fromDate.toISOString().slice(0, 10);
+  fromDate.setUTCDate(fromDate.getUTCDate() - 10);
+  const from = referenceDate ?? fromDate.toISOString().slice(0, 10);
 
   const stockSecids = new Set<string>([
     ...STOCK_TICKERS,
@@ -850,7 +865,7 @@ export async function GET() {
   const moexReferenceStale = stockPrevDate !== undefined && stockPrevDate !== yesterday;
   const COOL_TIME_MS = 12000;
   if (moexReferenceStale && Date.now() - startedAt < COOL_TIME_MS) {
-    await applyWeekendCorrection(body, val(topFuturesR));
+    await applyWeekendCorrection(body, val(topFuturesR), stockPrevDate);
   }
 
   // dynamic = "force-dynamic" выше уже не даёт Next.js кэшировать сам
