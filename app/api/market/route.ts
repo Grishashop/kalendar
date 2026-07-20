@@ -361,17 +361,30 @@ const INDEX_SPEC: Record<string, CandleSpec> = {
   RTSI: { engine: "stock", market: "index", board: "RTSI" },
 };
 
-// close последнего бара строго до `today` (лексикографическое сравнение
-// ISO-дат в "begin" работает без парсинга).
-function lastCloseBefore(
-  rows: Record<string, unknown>[],
-  today: string,
-): number | null {
+// Раньше искали последний бар СТРОГО ДО "сегодня" по часам — и это ломалось
+// ровно в окне между закрытием сессии и полуночью/началом новой сессии:
+// "сегодня" (по календарю) уже наступило, а торгов ещё не было, поэтому
+// "последний бар до сегодня" оказывался тем же самым баром, что и текущая
+// LAST-цена — сравнение с самим собой давало ровно 0% (живой пример:
+// SBER показывал 0,0% в 00:33 вторника, хотя по факту цена не менялась
+// с закрытия понедельника 23:50, и сравнивать нужно было с закрытием
+// ВОСКРЕСЕНЬЯ, а не с "сегодня").
+//
+// Правильный якорь — не часы, а САМИ ДАННЫЕ: берём дату последнего бара
+// в свечах (последний торговый день, за который вообще есть данные —
+// это и есть день, к которому относится текущая LAST), и ищем закрытие
+// последнего бара СТРОГО ДО этого дня. Не зависит от того, идут ли
+// торги прямо сейчас: работает и в разгар обычной сессии (последний
+// день в данных — сегодня, ищем вчера), и в паузе между сессиями
+// (последний день в данных — вчера/пятница/когда угодно, ищем день
+// перед ним) — без угадывания даты по UPDATETIME (у MOEX это только
+// HH:MM:SS, без даты, так что читать "дату LAST" напрямую неоткуда).
+function closeBeforeLastTradingDay(rows: Record<string, unknown>[]): number | null {
+  if (rows.length === 0) return null;
+  const lastDay = String(rows[rows.length - 1]["begin"]).slice(0, 10);
   for (let i = rows.length - 1; i >= 0; i--) {
-    const begin = rows[i]["begin"];
-    if (typeof begin === "string" && begin.slice(0, 10) < today) {
-      return num(rows[i]["close"]);
-    }
+    const day = String(rows[i]["begin"]).slice(0, 10);
+    if (day < lastDay) return num(rows[i]["close"]);
   }
   return null;
 }
@@ -391,7 +404,6 @@ function lastCloseBefore(
 async function weekendPrevClose(
   spec: CandleSpec,
   secid: string,
-  today: string,
   from: string,
 ): Promise<number | null> {
   try {
@@ -400,7 +412,7 @@ async function weekendPrevClose(
       `/securities/${encodeURIComponent(secid)}/candles.json` +
       `?interval=60&iss.meta=off&candles.columns=close,begin&from=${from}`;
     const json = await fetchJson(url, 1, 4000);
-    return lastCloseBefore(parseIssTable(json, "candles"), today);
+    return closeBeforeLastTradingDay(parseIssTable(json, "candles"));
   } catch {
     return null;
   }
@@ -416,7 +428,6 @@ const CANDLE_BUDGET_MS = 10000;
 // списка (акции топ-20 по обороту, дальние фьючерсы).
 async function weekendPrevCloseBatch(
   jobs: { secid: string; spec: CandleSpec }[],
-  today: string,
   from: string,
 ): Promise<Map<string, number>> {
   const prevClose = new Map<string, number>();
@@ -425,7 +436,7 @@ async function weekendPrevCloseBatch(
   async function worker(): Promise<void> {
     while (next < jobs.length && Date.now() < deadline) {
       const job = jobs[next++];
-      const v = await weekendPrevClose(job.spec, job.secid, today, from);
+      const v = await weekendPrevClose(job.spec, job.secid, from);
       if (v !== null) prevClose.set(job.secid, v);
     }
   }
@@ -435,31 +446,27 @@ async function weekendPrevCloseBatch(
   return prevClose;
 }
 
-// Пересчитывает changePct у всех котировок в body от цены строго до
-// сегодня (см. комментарий выше). Мутирует body на месте. fortsAllJson —
-// сырой ответ URL_FORTS_ALL: источник нескейленных цен для embedded
-// FutureInfo (у них last уже поделён на scale, но % от этого не зависит —
-// делим одинаково масштабированные last/prevClose).
+// Пересчитывает changePct у всех котировок в body от закрытия торгового
+// дня перед последним днём с данными (см. комментарий у
+// closeBeforeLastTradingDay). Теперь это единственный источник changePct —
+// собственному полю MOEX (LASTTOPREVPRICE/LASTCHANGEPRC) больше не
+// доверяем вообще, оно систематически ломалось в выходные/понедельник/
+// паузу между сессиями. Мутирует body на месте. fortsAllJson — сырой
+// ответ URL_FORTS_ALL: источник нескейленных цен для embedded FutureInfo
+// (у них last уже поделён на scale, но % от этого не зависит — делим
+// одинаково масштабированные last/prevClose).
 async function applyWeekendCorrection(
   body: MarketResponse,
   fortsAllJson: unknown,
   referenceDate: string | undefined,
 ): Promise<void> {
-  const today = todayMsk();
-  // from = PREVDATE у MOEX (последняя дата, которую сама биржа считает
-  // валидным предыдущим торговым днём), а НЕ фиксированное число дней
-  // назад. Фиксированный запас (сначала 7, потом "для надёжности" 45)
-  // оказался хуже: при обычных выходных (реальный разрыв — 1-3 дня) окно
-  // в 45 дней захватывает 40+ дней ОБЫЧНОЙ активной торговли — это тысячи
-  // часовых баров, а candles.json у MOEX ISS молча обрезает ответ до 500
-  // строк. Живой пример поймали: 45-дневный запрос вернул только первые
-  // 500 строк (~12 дней от начала окна), самые свежие данные потерялись
-  // из ответа, и коррекция пересчитала SBER на -17,5% вместо верных -1,5%.
-  // Окно от PREVDATE масштабируется само: 2-3 дня на обычные выходные,
-  // сколько угодно на длинную приостановку торгов (а там строк всё равно
-  // мало — торгов-то не было). При недоступном PREVDATE — запасной вариант
-  // в 10 дней (короче старого "надёжного" 7, но достаточно для типичных
-  // праздников и гарантированно не упрётся в лимит при обычной неделе).
+  // from — старт окна для запроса свечей (не для сравнения, см. выше):
+  // PREVDATE у MOEX, если известен, иначе 10 дней назад по умолчанию.
+  // Самошкалируется — 2-3 дня на обычные выходные, сколько угодно на
+  // длинную приостановку торгов (а там строк всё равно мало — торгов-то
+  // не было), без риска молчаливой обрезки MOEX ISS ответа на 500 строк
+  // (живой пример был: 45 дней вместо PREVDATE-якоря унесли самые свежие
+  // данные за пределы лимита и посчитали коррекцию по стародавним ценам).
   const fromDate = new Date(Date.now() + 3 * 60 * 60 * 1000);
   fromDate.setUTCDate(fromDate.getUTCDate() - 10);
   const from = referenceDate ?? fromDate.toISOString().slice(0, 10);
@@ -488,7 +495,7 @@ async function applyWeekendCorrection(
     ...[...futuresSecids].map((secid) => ({ secid, spec: FORTS_SPEC })),
   ];
 
-  const prevClose = await weekendPrevCloseBatch(jobs, today, from);
+  const prevClose = await weekendPrevCloseBatch(jobs, from);
 
   // Нескейленный текущий last для фьючерсов — из ALL-фьючерсов JSON,
   // покрывает любой контракт вплоть до попавших в топ-20 по обороту.
@@ -965,29 +972,36 @@ export async function GET() {
   }
   body.alorUsed = alorUsed;
 
-  // Раньше гейтили по дню недели (сб/вс), но баг оказался шире: сессия
-  // выходного дня для акций/IMOEX не считается MOEX "обычным" торговым
-  // днём, и PREVDATE у бумаг остаётся пятничным ЕЩЁ И в понедельник (живой
-  // пример: SBER.PREVDATE = "2026-07-17" в понедельник 11:36 МСК, хотя
-  // воскресная сессия с реальными сделками уже прошла). День недели —
-  // ненадёжный сигнал; настоящий признак рассинхрона — PREVDATE у MOEX
-  // не равен вчерашней календарной дате. Сверяем PREVDATE любой бумаги
-  // из stocksJson (он общий на весь борд) со «вчера» по МСК и запускаем
-  // коррекцию только когда есть реальное расхождение — на обычной неделе
-  // PREVDATE = вчера всегда, лишних запросов не будет.
-  const yesterday = new Date(
-    Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000,
-  )
-    .toISOString()
-    .slice(0, 10);
+  // changePct теперь ВСЕГДА пересчитывается сами (closeBeforeLastTradingDay
+  // в applyWeekendCorrection), а не только когда обнаружен рассинхрон
+  // PREVDATE у MOEX — своему полю LASTTOPREVPRICE/LASTCHANGEPRC MOEX
+  // больше не доверяем вовсе: оно ломалось и в выходные, и в понедельник,
+  // и в паузе между сессиями (PREVDATE у MOEX для TQBR/IMOEX не успевает
+  // прыгать по календарным дням при вечерних/выходных сессиях). Раньше
+  // здесь был гейт "запускать коррекцию только если PREVDATE ≠ вчера" —
+  // сама эта эвристика "вчера" и была источником бага (см. коммит про
+  // 00:33 вторника). closeBeforeLastTradingDay самодостаточна и всегда
+  // даёт корректный результат, гейтить по времени суток незачем.
+  //
+  // stockPrevDate по-прежнему нужен — не для решения "считать или нет",
+  // а как стартовая точка окна запроса свечей (самошкалируется под
+  // длину реальной паузы в торгах, см. комментарий в applyWeekendCorrection).
   const stockPrevDate = stocksJson
     ? (parseIssTable(stocksJson, "securities").find(
         (r) => typeof r["PREVDATE"] === "string",
       )?.["PREVDATE"] as string | undefined)
     : undefined;
-  const moexReferenceStale = stockPrevDate !== undefined && stockPrevDate !== yesterday;
+
+  // Защита от переполнения maxDuration: если первая волна запросов уже
+  // съела больше COOL_TIME_MS — MOEX сегодня медленный/троттлит, и вторая
+  // волна (пересчёт %) рискует не уложиться в лимит функции и уронить
+  // ВЕСЬ ответ вместо того, чтобы просто оставить часть котировок с
+  // исходным (возможно неточным) значением MOEX. Лучше отдать то, что
+  // уже есть, чем ничего. Обновление и так только по клику "Обновить" —
+  // лишней частоты вызовов, которую раньше экономил гейт по PREVDATE, тут
+  // уже нет.
   const COOL_TIME_MS = 12000;
-  if (moexReferenceStale && Date.now() - startedAt < COOL_TIME_MS) {
+  if (Date.now() - startedAt < COOL_TIME_MS) {
     await applyWeekendCorrection(body, val(topFuturesR), stockPrevDate);
   }
 
