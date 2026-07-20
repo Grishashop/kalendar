@@ -189,7 +189,7 @@ const URL_INDICES =
 const URL_STOCKS =
   "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?securities=" +
   STOCK_TICKERS.join(",") +
-  "&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME&marketdata.columns=SECID,LAST,OPEN,LASTTOPREVPRICE,HIGH,LOW,UPDATETIME";
+  "&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,PREVDATE&marketdata.columns=SECID,LAST,OPEN,LASTTOPREVPRICE,HIGH,LOW,UPDATETIME";
 
 const URL_FORTS =
   "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?assets=BR,NG,GOLD,MIX,RTS,Si,Eu,CNY&iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,SETTLEPRICE,SETTLETOPREVSETTLEPRC,UPDATETIME";
@@ -827,16 +827,29 @@ export async function GET() {
     cbrDate,
   };
 
-  // Только по выходным (МСК) — на буднях PREVDATE у MOEX и так корректен.
-  // Плюс защита от переполнения maxDuration: если первая волна запросов
-  // уже съела больше COOL_TIME_MS — MOEX сегодня медленный/троттлит, и
-  // вторая волна (коррекция) рискует не уложиться в лимит функции и
-  // уронить ВЕСЬ ответ вместо того, чтобы просто оставить часть котировок
-  // с исходным (не всегда точным для выходных) значением MOEX. Лучше
-  // отдать то, что уже есть, чем ничего.
-  const mskWeekday = new Date(Date.now() + 3 * 60 * 60 * 1000).getUTCDay();
+  // Раньше гейтили по дню недели (сб/вс), но баг оказался шире: сессия
+  // выходного дня для акций/IMOEX не считается MOEX "обычным" торговым
+  // днём, и PREVDATE у бумаг остаётся пятничным ЕЩЁ И в понедельник (живой
+  // пример: SBER.PREVDATE = "2026-07-17" в понедельник 11:36 МСК, хотя
+  // воскресная сессия с реальными сделками уже прошла). День недели —
+  // ненадёжный сигнал; настоящий признак рассинхрона — PREVDATE у MOEX
+  // не равен вчерашней календарной дате. Сверяем PREVDATE любой бумаги
+  // из stocksJson (он общий на весь борд) со «вчера» по МСК и запускаем
+  // коррекцию только когда есть реальное расхождение — на обычной неделе
+  // PREVDATE = вчера всегда, лишних запросов не будет.
+  const yesterday = new Date(
+    Date.now() + 3 * 60 * 60 * 1000 - 24 * 60 * 60 * 1000,
+  )
+    .toISOString()
+    .slice(0, 10);
+  const stockPrevDate = stocksJson
+    ? (parseIssTable(stocksJson, "securities").find(
+        (r) => typeof r["PREVDATE"] === "string",
+      )?.["PREVDATE"] as string | undefined)
+    : undefined;
+  const moexReferenceStale = stockPrevDate !== undefined && stockPrevDate !== yesterday;
   const COOL_TIME_MS = 12000;
-  if ((mskWeekday === 0 || mskWeekday === 6) && Date.now() - startedAt < COOL_TIME_MS) {
+  if (moexReferenceStale && Date.now() - startedAt < COOL_TIME_MS) {
     await applyWeekendCorrection(body, val(topFuturesR));
   }
 
