@@ -62,6 +62,9 @@ export interface MarketResponse {
   sparklines: { imoex: number[]; rtsi: number[] };
   moexTime: string | null;
   cbrDate: string | null;
+  // true, если голубые фишки/юань реально обновлены через авторизованный
+  // ALOR (реалтайм) в ЭТОМ ответе — а не остались на данных MOEX (до 15 мин).
+  alorUsed: boolean;
 }
 
 // --- Константы состава ---
@@ -157,6 +160,107 @@ async function fetchJson(
     }
   }
   throw lastErr;
+}
+
+// --- ALOR (авторизованный, реалтайм) ---
+//
+// Публичный (без токена) ALOR даёт те же 15 минут задержки, что и MOEX —
+// смысла нет. С личным токеном (ALOR_TOKEN, из личного кабинета брокера,
+// НИКОГДА не должен попадать в клиентский код — используется только
+// здесь, server-side) — реалтайм. Обмен: ALOR_TOKEN — это долгоживущий
+// refresh-токен, на каждый запрос меняем его на JWT access-токен (живёт
+// 30 минут, но проще получать заново на каждый вызов GET() — обновление
+// и так только по явному клику "Обновить" в интерфейсе, не по расписанию,
+// лишней частоты не будет).
+//
+// Только 10 голубых фишек (STOCK_TICKERS) + биржевой юань — топ-20 по
+// обороту и фьючерсы остаются на MOEX: ALOR без доп. прав не отдаёт
+// объёмы по всему борду для ранжирования, а фьючерсам нужен динамический
+// подбор фронт-месяца, которого через ALOR нет.
+const ALOR_SYMBOLS =
+  STOCK_TICKERS.map((t) => `MOEX:${t}`).join(",") + ",MOEX:CNYRUB_TOM";
+
+interface AlorQuote {
+  symbol: string;
+  last_price: number | null;
+  open_price: number | null;
+  high_price: number | null;
+  low_price: number | null;
+}
+
+async function getAlorAccessToken(): Promise<string | null> {
+  const refreshToken = process.env.ALOR_TOKEN;
+  if (!refreshToken) {
+    console.error("ALOR_TOKEN не задан в env");
+    return null;
+  }
+  try {
+    const res = await fetch(
+      `https://oauth.alor.ru/refresh?token=${encodeURIComponent(refreshToken)}`,
+      {
+        method: "POST",
+        headers: FETCH_HEADERS,
+        signal: AbortSignal.timeout(5000),
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) {
+      console.error("ALOR refresh HTTP", res.status, await res.text());
+      return null;
+    }
+    const json = (await res.json()) as { AccessToken?: string };
+    if (!json.AccessToken) console.error("ALOR refresh: нет AccessToken в ответе", json);
+    return json.AccessToken ?? null;
+  } catch (e) {
+    console.error("ALOR refresh упал:", e);
+    return null;
+  }
+}
+
+// Best-effort: любая ошибка (нет токена, ALOR недоступен, JWT протух) —
+// пустая карта, дальше по коду просто остаёмся на данных MOEX.
+async function fetchAlorQuotes(): Promise<Map<string, AlorQuote>> {
+  const out = new Map<string, AlorQuote>();
+  const jwt = await getAlorAccessToken();
+  if (!jwt) return out;
+  try {
+    const res = await fetch(
+      `https://api.alor.ru/md/v2/Securities/${ALOR_SYMBOLS}/quotes`,
+      {
+        headers: { ...FETCH_HEADERS, Authorization: `Bearer ${jwt}` },
+        signal: AbortSignal.timeout(6000),
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) {
+      console.error("ALOR quotes HTTP", res.status, await res.text());
+      return out;
+    }
+    const rows = (await res.json()) as AlorQuote[];
+    for (const r of rows) {
+      if (typeof r.symbol === "string") out.set(r.symbol, r);
+    }
+  } catch (e) {
+    console.error("ALOR quotes упал:", e);
+  }
+  return out;
+}
+
+// Мутирует котировку на месте: реалтайм-цена ALOR вместо 15-минутной
+// MOEX. changePct не трогаем — его пересчитает applyWeekendCorrection
+// (или он уже верный на буднях) от свежего last, который мы тут поставили.
+function applyAlorQuote(
+  q: Quote,
+  alorSymbol: string,
+  alorQuotes: Map<string, AlorQuote>,
+): boolean {
+  const r = alorQuotes.get(alorSymbol);
+  if (!r) return false;
+  if (typeof r.last_price === "number") q.last = r.last_price;
+  if (typeof r.open_price === "number") q.open = r.open_price;
+  if (typeof r.high_price === "number") q.high = r.high_price;
+  if (typeof r.low_price === "number") q.low = r.low_price;
+  return true;
 }
 
 function num(v: unknown): number | null {
@@ -769,6 +873,7 @@ export async function GET() {
     sparkRtsiR,
     topStocksR,
     topFuturesR,
+    alorR,
   ] = await Promise.allSettled([
     fetchJson(URL_INDICES),
     fetchJson(URL_STOCKS),
@@ -779,6 +884,7 @@ export async function GET() {
     fetchJson(candlesUrl("RTSI", "RTSI", today)),
     fetchJson(URL_STOCKS_ALL),
     fetchJson(URL_FORTS_ALL),
+    fetchAlorQuotes(),
   ]);
 
   const val = <T,>(r: PromiseSettledResult<T>): T | null =>
@@ -840,7 +946,24 @@ export async function GET() {
     },
     moexTime: maxUpdateTime(indicesJson, stocksJson),
     cbrDate,
+    alorUsed: false,
   };
+
+  // Реалтайм-цены ALOR поверх голубых фишек/юаня от MOEX (до 15 мин) —
+  // только для того, что реально пришло; при сбое (нет токена, ALOR
+  // недоступен) остаёмся на данных MOEX без единого намёка на ошибку
+  // пользователю — это необязательное улучшение, а не основной источник.
+  const alorQuotes = val(alorR) ?? new Map<string, AlorQuote>();
+  let alorUsed = false;
+  for (const q of body.stocks) {
+    if (applyAlorQuote(q, q.secid, alorQuotes)) alorUsed = true;
+  }
+  for (const q of body.currencies) {
+    if (q.secid === "CNYRUB_TOM" && applyAlorQuote(q, "CNYRUB_TOM", alorQuotes)) {
+      alorUsed = true;
+    }
+  }
+  body.alorUsed = alorUsed;
 
   // Раньше гейтили по дню недели (сб/вс), но баг оказался шире: сессия
   // выходного дня для акций/IMOEX не считается MOEX "обычным" торговым

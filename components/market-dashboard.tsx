@@ -545,12 +545,6 @@ export function MarketDashboard() {
     [],
   );
 
-  // Данные грузим сразу при открытии страницы: /api/market теперь кэшируется
-  // на 8с (CDN), так что автозагрузка не бьёт по MOEX на каждый визит.
-  useEffect(() => {
-    void load(false);
-  }, [load]);
-
   // Плотность запоминается между открытиями (удобно для повторных скриншотов).
   useEffect(() => {
     if (localStorage.getItem("market-compact") === "1") setCompact(true);
@@ -587,9 +581,9 @@ export function MarketDashboard() {
   return (
     <div className="min-h-screen bg-[#0b1220] px-4 py-6 text-slate-100">
       <div className="mx-auto max-w-5xl">
-        {/* Панель управления — вне зоны скриншота */}
-        {data && (
-          <div className="mb-4 flex flex-wrap items-center gap-2 print:hidden">
+        {/* Панель управления — вне зоны скриншота. Без гейта по data: иначе
+            кнопку "Обновить" при первом заходе просто негде нажать. */}
+        <div className="mb-4 flex flex-wrap items-center gap-2 print:hidden">
           <button
             onClick={() => void load(false)}
             disabled={loading}
@@ -621,8 +615,7 @@ export function MarketDashboard() {
           >
             Сбросить комментарий
           </button>
-          </div>
-        )}
+        </div>
 
         {/* Обновление после первого успешного захода упало, но старые
             данные ещё есть — раньше это было НЕВИДИМО (баннер ниже
@@ -651,8 +644,21 @@ export function MarketDashboard() {
             </button>
           </div>
         )}
-        {/* Первый заход и повторные обновления: спиннер до первых данных */}
-        {!data && !error && (
+        {/* Первая загрузка ещё не запрошена — автозагрузки на маунте нет
+            намеренно: /api/market дёргает не только бесплатный MOEX, но и
+            авторизованный токен ALOR, обновление — только по явному клику. */}
+        {!loading && !data && !error && (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
+            <div className="text-lg font-medium text-slate-100">
+              Котировки ещё не загружены
+            </div>
+            <p className="mt-2 text-sm text-slate-400">
+              Нажмите «Обновить», чтобы запросить актуальные данные.
+            </p>
+          </div>
+        )}
+        {/* Загрузка (первая или повторная после ошибки без старых данных) */}
+        {loading && !data && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
             <div className="flex items-center justify-center gap-3">
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-emerald-400" />
@@ -692,7 +698,9 @@ export function MarketDashboard() {
                 )}
                 {cbrDateRu && <div>Курсы ЦБ на {cbrDateRu}</div>}
                 <div className="mt-0.5 text-slate-500">
-                  Акции/фьючерсы/юань — задержка до 15 мин, индексы — реалтайм
+                  {data.alorUsed
+                    ? "Голубые фишки/юань — реалтайм (ALOR), топ-20/фьючерсы — задержка до 15 мин, индексы — реалтайм"
+                    : "Акции/фьючерсы/юань — задержка до 15 мин, индексы — реалтайм"}
                 </div>
               </div>
             </header>
