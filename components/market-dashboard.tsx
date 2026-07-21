@@ -343,7 +343,13 @@ function IndexCard({
             </span>
           </div>
           <div className={compact ? "mt-0.5 text-base" : "mt-1 text-lg"}>
-            <ChangeBadge pct={q.changePct} />
+            {q.staleSince ? (
+              <span className="text-sm font-normal text-amber-500/80">
+                Не обновлялось с {q.staleSince} МСК
+              </span>
+            ) : (
+              <ChangeBadge pct={q.changePct} />
+            )}
           </div>
         </div>
         <Sparkline values={spark} color={strokeColor} compact={compact} />
@@ -363,7 +369,7 @@ function IndexCard({
             Фьючерс {q.future.shortName}
           </span>
           <span
-            className={`text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
+            className={`font-medium text-slate-200 ${compact ? "text-sm" : "text-base"}`}
           >
             {fmtNum(q.future.last)} п. <ChangeBadge pct={q.future.changePct} />
           </span>
@@ -398,11 +404,16 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
       </div>
       {q.future && q.future.last !== null && (
         <div
-          className={`mt-1 border-t border-slate-800 pt-1 text-slate-400 ${compact ? "text-[10px]" : "text-[11px]"}`}
+          className={`mt-1 flex items-baseline justify-between gap-1 border-t border-slate-800 pt-1 ${compact ? "text-[10px]" : "text-[11px]"}`}
         >
-          Фьюч. {fmtNum(q.future.last)}{" "}
-          <span className={changeColor(q.future.changePct)}>
-            {fmtPct(q.future.changePct)}
+          <span className="text-slate-400">Фьюч.</span>
+          <span
+            className={`font-medium text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
+          >
+            {fmtNum(q.future.last)}{" "}
+            <span className={changeColor(q.future.changePct)}>
+              {fmtPct(q.future.changePct)}
+            </span>
           </span>
         </div>
       )}
