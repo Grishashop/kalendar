@@ -426,9 +426,7 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
             className={`font-medium text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
           >
             {fmtNum(q.future.last)}{" "}
-            <span className={changeColor(q.future.changePct)}>
-              {fmtPct(q.future.changePct)}
-            </span>
+            <ChangeBadge pct={q.future.changePct} />
           </span>
         </div>
       )}
