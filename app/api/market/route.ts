@@ -874,9 +874,16 @@ function maxUpdateTime(...quoteJsons: unknown[]): string | null {
   return max;
 }
 
-export async function GET() {
+// Компактный вид дашборда не показывает топ-20 по обороту (акции/фьючерсы) —
+// эти два списка тянут отдельные тяжёлые запросы (весь борд TQBR/FORTS
+// целиком) и добавляют ~30-40 из ~50-70 job'ов в applyWeekendCorrection
+// (топ-20 акций + топ-20 фьючерсов + их коррекция). ?scope=full запрашивает
+// клиент только при переключении на расширенный вид — по умолчанию (без
+// параметра) отдаём компактный набор, который загружается заметно быстрее.
+export async function GET(request: Request) {
   const startedAt = Date.now();
   const today = todayMsk();
+  const fullScope = new URL(request.url).searchParams.get("scope") === "full";
   const [
     indicesR,
     stocksR,
@@ -896,8 +903,8 @@ export async function GET() {
     fetchJson(URL_CNY),
     fetchJson(candlesUrl("SNDX", "IMOEX2", today)),
     fetchJson(candlesUrl("RTSI", "RTSI", today)),
-    fetchJson(URL_STOCKS_ALL),
-    fetchJson(URL_FORTS_ALL),
+    fullScope ? fetchJson(URL_STOCKS_ALL) : Promise.resolve(null),
+    fullScope ? fetchJson(URL_FORTS_ALL) : Promise.resolve(null),
     fetchAlorQuotes(),
   ]);
 
@@ -1009,7 +1016,11 @@ export async function GET() {
   // уже нет.
   const COOL_TIME_MS = 12000;
   if (Date.now() - startedAt < COOL_TIME_MS) {
-    await applyWeekendCorrection(body, val(topFuturesR), stockPrevDate);
+    // topFuturesR — null в компактном режиме (см. fullScope выше); узкий
+    // fortsJson (уже получен в любом случае) покрывает все контракты,
+    // нужные для commodities/embedded FutureInfo — топ-20 фьючерсов в
+    // компактном виде и так пуст, дополнительные контракты не нужны.
+    await applyWeekendCorrection(body, val(topFuturesR) ?? fortsJson, stockPrevDate);
   }
 
   // dynamic = "force-dynamic" выше уже не даёт Next.js кэшировать сам

@@ -515,21 +515,32 @@ export function MarketDashboard() {
   const isEditedRef = useRef(false);
   const commentRef = useRef<HTMLTextAreaElement>(null);
   const [compact, setCompact] = useState(false);
+  // Что сейчас реально загружено в data — "full" содержит топ-20 по
+  // обороту (акции+фьючерсы), "compact" — нет. Нужно, чтобы понять,
+  // требуется ли догрузка при переключении на расширенный вид.
+  const [dataScope, setDataScope] = useState<"compact" | "full" | null>(null);
+  const [progressPct, setProgressPct] = useState(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
 
   const load = useCallback(
-    async (regenerate: boolean) => {
+    async (regenerate: boolean, scope: "compact" | "full") => {
       setLoading(true);
       setError(null);
       try {
-        // Ретраи и переповтор по MOEX уже делает /api/market (плюс кэш на
-        // 8с) — дублировать их тут не нужно, только увеличивает задержку.
-        const res = await fetch("/api/market", { cache: "no-store" });
+        // Компактный вид не показывает топ-20 по обороту — не запрашиваем
+        // их (scope=full только когда реально нужны, при расширенном виде).
+        // Ретраи и повтор по MOEX уже делает /api/market (плюс кэш) —
+        // дублировать их тут не нужно, только увеличивает задержку.
+        const res = await fetch(`/api/market${scope === "full" ? "?scope=full" : ""}`, {
+          cache: "no-store",
+        });
         const json = await res.json();
         if (!res.ok || json.error) {
           throw new Error(json.error ?? "Ошибка загрузки");
         }
         const md = json as MarketResponse;
         setData(md);
+        setDataScope(scope);
         // Перегенерируем комментарий только если пользователь его не правил
         // (или явно запросил сброс).
         if (regenerate || !isEditedRef.current) {
@@ -544,6 +555,25 @@ export function MarketDashboard() {
     },
     [],
   );
+
+  // Настоящего прогресса у /api/market нет — сколько осталось, зависит от
+  // того, насколько сейчас тормозит MOEX/ALOR, узнать заранее нельзя.
+  // Псевдопрогресс: ползёт к ~95% по асимптоте от типичного времени
+  // загрузки (по наблюдениям — 5-15с), чтобы визуально было видно, что
+  // процесс идёт и не завис, не обещая точное время, которого мы не знаем.
+  useEffect(() => {
+    if (!loading) return;
+    setProgressPct(0);
+    setElapsedSec(0);
+    const startedAt = Date.now();
+    const EXPECTED_MS = 13000;
+    const id = setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      setElapsedSec(Math.floor(elapsed / 1000));
+      setProgressPct(95 * (1 - Math.exp(-elapsed / EXPECTED_MS)));
+    }, 200);
+    return () => clearInterval(id);
+  }, [loading]);
 
   // Плотность запоминается между открытиями (удобно для повторных скриншотов).
   useEffect(() => {
@@ -585,20 +615,24 @@ export function MarketDashboard() {
             кнопку "Обновить" при первом заходе просто негде нажать. */}
         <div className="mb-4 flex flex-wrap items-center gap-2 print:hidden">
           <button
-            onClick={() => void load(false)}
+            onClick={() => void load(false, compact ? "compact" : "full")}
             disabled={loading}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
             {loading ? "Обновление…" : "Обновить"}
           </button>
           <button
-            onClick={() =>
-              setCompact((c) => {
-                const next = !c;
-                localStorage.setItem("market-compact", next ? "1" : "0");
-                return next;
-              })
-            }
+            onClick={() => {
+              const next = !compact;
+              setCompact(next);
+              localStorage.setItem("market-compact", next ? "1" : "0");
+              // Переключились на расширенный вид, а топ-20 ещё не грузили —
+              // догружаем в фоне (данные уже на экране, большой оверлей
+              // загрузки не покажется — он гейтится на !data).
+              if (!next && dataScope !== "full" && !loading) {
+                void load(false, "full");
+              }
+            }}
             className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
           >
             {compact ? "Расширенный вид" : "Компактный вид"}
@@ -637,7 +671,7 @@ export function MarketDashboard() {
             </div>
             <div className="mt-1 text-sm text-slate-400">{error}</div>
             <button
-              onClick={() => void load(true)}
+              onClick={() => void load(true, compact ? "compact" : "full")}
               className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
             >
               Повторить
@@ -660,14 +694,21 @@ export function MarketDashboard() {
         {/* Загрузка (первая или повторная после ошибки без старых данных) */}
         {loading && !data && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
-            <div className="flex items-center justify-center gap-3">
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-emerald-400" />
-              <span className="text-lg font-medium text-slate-100">
-                Загружаем котировки…
-              </span>
+            <div className="text-lg font-medium text-slate-100">
+              Загружаем котировки… {elapsedSec}с
             </div>
-            <p className="mt-2 text-sm text-slate-400">
-              Это может занять несколько секунд — подождите, пожалуйста.
+            <div
+              role="progressbar"
+              aria-label="Загрузка котировок"
+              className="mx-auto mt-4 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-800"
+            >
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-[width] duration-200 ease-linear"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <p className="mt-3 text-sm text-slate-400">
+              MOEX и ALOR иногда отвечают медленно — обычно занимает 5–15 секунд.
             </p>
           </div>
         )}
@@ -776,7 +817,12 @@ export function MarketDashboard() {
                   <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
                     Акции · топ-20 по обороту
                   </h2>
-                  {data.topStocksByVolume.length > 0 ? (
+                  {loading && dataScope !== "full" ? (
+                    <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-700 border-t-emerald-400" />
+                      Загружаем топ-20…
+                    </div>
+                  ) : data.topStocksByVolume.length > 0 ? (
                     <div className="grid grid-cols-1 gap-2">
                       {data.topStocksByVolume.map((q) => (
                         <VolumeRow key={q.secid} q={q} />
@@ -793,7 +839,12 @@ export function MarketDashboard() {
                   <p className="mb-2 text-[11px] text-slate-500">
                     Цена контракта как на бирже, без приведения к споту
                   </p>
-                  {data.topFuturesByVolume.length > 0 ? (
+                  {loading && dataScope !== "full" ? (
+                    <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-700 border-t-emerald-400" />
+                      Загружаем топ-20…
+                    </div>
+                  ) : data.topFuturesByVolume.length > 0 ? (
                     <div className="grid grid-cols-1 gap-2">
                       {data.topFuturesByVolume.map((q) => (
                         <VolumeRow key={q.secid} q={q} />
