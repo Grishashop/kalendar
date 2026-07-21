@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Coins, Droplet, Flame, Landmark, Globe, RotateCcw } from "lucide-react";
+import { Coins, Droplet, Flame, Landmark, Globe, RotateCcw, PauseCircle } from "lucide-react";
 import type { MarketResponse, Quote, IndexQuote } from "@/app/api/market/route";
 
 // Фиксированная тёмная тема финансового терминала. Внутри «зоны скриншота»
@@ -343,13 +343,22 @@ function IndexCard({
               {q.unit}
             </span>
           </div>
-          <div className={compact ? "mt-0.5 text-base" : "mt-1 text-lg"}>
+          <div className={compact ? "mt-0.5" : "mt-1"}>
             {q.staleSince ? (
-              <span className="text-sm font-normal text-amber-500/80">
-                Не обновлялось с {q.staleSince} МСК
-              </span>
+              <div className="text-amber-500/80">
+                <span className="flex items-center gap-1 whitespace-nowrap text-base font-normal">
+                  <PauseCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  Без курса $
+                </span>
+                <span className="block text-xs text-slate-500">
+                  индекс не считается ·{" "}
+                  <span className="whitespace-nowrap">{q.staleSince} МСК</span>
+                </span>
+              </div>
             ) : (
-              <ChangeBadge pct={q.changePct} />
+              <div className={compact ? "text-base" : "text-lg"}>
+                <ChangeBadge pct={q.changePct} />
+              </div>
             )}
           </div>
         </div>
