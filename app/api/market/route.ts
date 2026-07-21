@@ -733,8 +733,25 @@ const SECTOR_GROUPS: { sector: string; items: { secid: string; name: string }[] 
       { secid: "NLMK", name: "НЛМК" },
       { secid: "MAGN", name: "ММК" },
       { secid: "ALRS", name: "АЛРОСА" },
-      { secid: "UGLD", name: "ЮГК" },
     ],
+  },
+  {
+    sector: "Электроэнергетика",
+    items: [
+      { secid: "IRAO", name: "ИнтерРАО" },
+      { secid: "MSNG", name: "Мосэнерго" },
+    ],
+  },
+  {
+    sector: "Транспорт",
+    items: [
+      { secid: "AFLT", name: "Аэрофлот" },
+      { secid: "FLOT", name: "Совкомфлот" },
+    ],
+  },
+  {
+    sector: "Химия",
+    items: [{ secid: "PHOR", name: "ФосАгро" }],
   },
   {
     sector: "Технологии",
@@ -762,24 +779,6 @@ const SECTOR_GROUPS: { sector: string; items: { secid: string; name: string }[] 
       { secid: "MTSS", name: "МТС" },
       { secid: "RTKM", name: "Ростелеком" },
     ],
-  },
-  {
-    sector: "Электроэнергетика",
-    items: [
-      { secid: "IRAO", name: "ИнтерРАО" },
-      { secid: "MSNG", name: "Мосэнерго" },
-    ],
-  },
-  {
-    sector: "Транспорт",
-    items: [
-      { secid: "AFLT", name: "Аэрофлот" },
-      { secid: "FLOT", name: "Совкомфлот" },
-    ],
-  },
-  {
-    sector: "Химия",
-    items: [{ secid: "PHOR", name: "ФосАгро" }],
   },
 ];
 

@@ -880,9 +880,6 @@ export function MarketDashboard() {
               </section>
             ) : stockView === "sectors" ? (
               <section className="mt-3">
-                <h2 className="mb-1.5 text-sm font-semibold uppercase tracking-wide text-slate-400">
-                  По отраслям
-                </h2>
                 {loading && dataScope !== "full" ? (
                   <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
                     <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-700 border-t-emerald-400" />
