@@ -396,7 +396,7 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
       className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-2" : "p-3"}`}
     >
       <div
-        className="flex items-start gap-1.5 text-xs text-slate-400"
+        className="flex min-h-12 items-start gap-1.5 text-xs leading-4 text-slate-400"
         title={q.name}
       >
         <span className="mt-0.5 flex shrink-0 items-center gap-1">
@@ -409,7 +409,7 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
         </span>
       </div>
       <div
-        className={`mt-1 font-semibold text-slate-100 ${compact ? "text-base" : "text-lg"}`}
+        className={`mt-1 min-h-10 leading-5 font-semibold text-slate-100 ${compact ? "text-base" : "text-lg"}`}
       >
         {fmtNum(q.last)}{" "}
         <span className="text-xs font-normal text-slate-400">{q.unit}</span>
