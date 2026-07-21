@@ -396,13 +396,17 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
       className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-2" : "p-3"}`}
     >
       <div
-        className="flex items-center gap-1.5 truncate text-xs text-slate-400"
+        className="flex items-start gap-1.5 text-xs text-slate-400"
         title={q.name}
       >
-        <CurrencyFlag secid={q.secid} />
-        <CommodityIcon name={q.name} />
-        {q.name}
-        {q.contract && <span className="text-slate-500"> · {q.contract}</span>}
+        <span className="mt-0.5 flex shrink-0 items-center gap-1">
+          <CurrencyFlag secid={q.secid} />
+          <CommodityIcon name={q.name} />
+        </span>
+        <span className="min-w-0 break-words">
+          {q.name}
+          {q.contract && <span className="text-slate-500"> · {q.contract}</span>}
+        </span>
       </div>
       <div
         className={`mt-1 font-semibold text-slate-100 ${compact ? "text-base" : "text-lg"}`}
