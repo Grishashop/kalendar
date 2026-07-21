@@ -847,7 +847,7 @@ export function MarketDashboard() {
                 Валюты и сырьё
               </h2>
               {data.currencies.length + data.commodities.length > 0 ? (
-                <div className="grid grid-cols-6 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                   {[...data.currencies, ...orderCommodities(data.commodities)].map(
                     (q) => (
                       <MiniCard key={q.secid} q={q} compact />
@@ -869,7 +869,7 @@ export function MarketDashboard() {
                   Голубые фишки
                 </h2>
                 {data.stocks.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {data.stocks.map((q) => (
                       <StockRow key={q.secid} q={q} compact />
                     ))}
