@@ -697,11 +697,6 @@ export function MarketDashboard() {
                   <div>Данные MOEX на {data.moexTime.slice(0, 5)} МСК</div>
                 )}
                 {cbrDateRu && <div>Курсы ЦБ на {cbrDateRu}</div>}
-                <div className="mt-0.5 text-slate-500">
-                  {data.alorUsed
-                    ? "Голубые фишки/юань — реалтайм (ALOR), топ-20/фьючерсы — задержка до 15 мин, индексы — реалтайм"
-                    : "Акции/фьючерсы/юань — задержка до 15 мин, индексы — реалтайм"}
-                </div>
               </div>
             </header>
 
