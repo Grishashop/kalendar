@@ -298,7 +298,7 @@ function Sparkline({
 
 function ChangeBadge({ pct }: { pct: number | null }) {
   return (
-    <span className={`font-semibold ${changeColor(pct)}`}>
+    <span className={`whitespace-nowrap font-semibold ${changeColor(pct)}`}>
       {arrow(pct)} {fmtPct(pct)}
     </span>
   );
