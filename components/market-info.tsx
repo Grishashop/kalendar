@@ -107,12 +107,16 @@ function TradingSchedule() {
         <div>
           <div className="text-sm font-medium text-slate-200">Срочный рынок</div>
           <ul className="mt-1 space-y-0.5 text-sm text-slate-400">
-            <li>Утренняя сессия: 08:50–10:00</li>
-            <li>Основная сессия: 10:00–14:00 и 14:05–18:50</li>
-            <li>Вечерняя сессия: 19:05–23:50</li>
+            <li>Аукцион открытия: 08:50–09:00</li>
+            <li>Утренняя доп. сессия: 09:00–10:00</li>
+            <li>Основная сессия: 10:00–19:00</li>
+            <li>Вечерняя доп. сессия: 19:00–23:50</li>
             <li>Сессии выходного дня: 09:50–19:00</li>
           </ul>
-          <p className="mt-1 text-xs text-slate-500">С 23.03.2026 — единая торговая сессия.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            С 23.03.2026 действует единая торговая сессия — торги идут без остановки на
+            промежуточный клиринг.
+          </p>
         </div>
         <div>
           <div className="text-sm font-medium text-slate-200">Валютный рынок</div>
