@@ -58,6 +58,13 @@ export interface IndexQuote extends Quote {
   future: FutureInfo | null;
 }
 
+// Отрасль + её бумаги (фиксированный список ~40 самых весомых по индексу
+// IMOEX эмитентов) — для вида «По отраслям».
+export interface SectorGroup {
+  sector: string;
+  quotes: Quote[];
+}
+
 export interface MarketResponse {
   indices: IndexQuote[];
   stocks: Quote[];
@@ -66,6 +73,8 @@ export interface MarketResponse {
   // Топ-20 по обороту (VALTODAY, ₽) за сессию — для «Расширенного вида».
   topStocksByVolume: Quote[];
   topFuturesByVolume: Quote[];
+  // То же самое разбито по отраслям (см. SECTOR_GROUPS) — для «По отраслям».
+  sectorStocks: SectorGroup[];
   sparklines: { imoex: number[]; rtsi: number[] };
   moexTime: string | null;
   cbrDate: string | null;
@@ -488,6 +497,7 @@ async function applyWeekendCorrection(
   const stockSecids = new Set<string>([
     ...STOCK_TICKERS,
     ...body.topStocksByVolume.map((q) => q.secid),
+    ...body.sectorStocks.flatMap((g) => g.quotes.map((q) => q.secid)),
   ]);
   const futuresSecids = new Set<string>([
     ...body.commodities.map((q) => q.secid),
@@ -535,6 +545,9 @@ async function applyWeekendCorrection(
   body.topStocksByVolume.forEach((q) => applyPct(q, q.secid, q.last));
   body.commodities.forEach((q) => applyPct(q, q.secid, q.last));
   body.topFuturesByVolume.forEach((q) => applyPct(q, q.secid, q.last));
+  body.sectorStocks.forEach((g) =>
+    g.quotes.forEach((q) => applyPct(q, q.secid, q.last)),
+  );
   body.indices.forEach((q) => {
     applyPct(q, q.secid === "IMOEX" ? "IMOEX2" : q.secid, q.last);
     if (q.future) {
@@ -679,6 +692,123 @@ function buildTopStocks(json: unknown): Quote[] {
     .sort((a, b) => b.volume - a.volume)
     .slice(0, 20)
     .map(({ quote }) => quote);
+}
+
+// Фиксированный набор ~40 самых весомых по индексу IMOEX бумаг,
+// сгруппированных по отраслям (агрегация по факт. составу и весам IMOEX,
+// проверено вручную по live-данным MOEX ISS) — для вида «По отраслям».
+// Порядок секторов и бумаг внутри — по убыванию суммарного веса в индексе.
+const SECTOR_GROUPS: { sector: string; items: { secid: string; name: string }[] }[] = [
+  {
+    sector: "Нефть и газ",
+    items: [
+      { secid: "LKOH", name: "Лукойл" },
+      { secid: "GAZP", name: "Газпром" },
+      { secid: "TATN", name: "Татнефть" },
+      { secid: "NVTK", name: "Новатэк" },
+      { secid: "ROSN", name: "Роснефть" },
+      { secid: "SNGS", name: "Сургутнефтегаз" },
+      { secid: "TRNFP", name: "Транснефть" },
+    ],
+  },
+  {
+    sector: "Финансы",
+    items: [
+      { secid: "SBER", name: "Сбербанк" },
+      { secid: "T", name: "Т-Технологии" },
+      { secid: "VTBR", name: "ВТБ" },
+      { secid: "MOEX", name: "МосБиржа" },
+      { secid: "CBOM", name: "МКБ" },
+      { secid: "DOMRF", name: "ДОМ.РФ" },
+      { secid: "SVCB", name: "Совкомбанк" },
+    ],
+  },
+  {
+    sector: "Металлы и добыча",
+    items: [
+      { secid: "GMKN", name: "Норникель" },
+      { secid: "PLZL", name: "Полюс" },
+      { secid: "CHMF", name: "Северсталь" },
+      { secid: "RUAL", name: "Русал" },
+      { secid: "NLMK", name: "НЛМК" },
+      { secid: "MAGN", name: "ММК" },
+      { secid: "ALRS", name: "АЛРОСА" },
+      { secid: "UGLD", name: "ЮГК" },
+    ],
+  },
+  {
+    sector: "Технологии",
+    items: [
+      { secid: "YDEX", name: "Яндекс" },
+      { secid: "HEAD", name: "Хэдхантер" },
+      { secid: "VKCO", name: "VK" },
+      { secid: "POSI", name: "Позитив" },
+      { secid: "CNRU", name: "Циан" },
+    ],
+  },
+  {
+    sector: "Потребительский сектор",
+    items: [
+      { secid: "OZON", name: "Озон" },
+      { secid: "X5", name: "Х5" },
+      { secid: "LENT", name: "Лента" },
+      { secid: "RAGR", name: "Русагро" },
+      { secid: "MDMG", name: "Мать и Дитя" },
+    ],
+  },
+  {
+    sector: "Телекоммуникации",
+    items: [
+      { secid: "MTSS", name: "МТС" },
+      { secid: "RTKM", name: "Ростелеком" },
+    ],
+  },
+  {
+    sector: "Электроэнергетика",
+    items: [
+      { secid: "IRAO", name: "ИнтерРАО" },
+      { secid: "MSNG", name: "Мосэнерго" },
+    ],
+  },
+  {
+    sector: "Транспорт",
+    items: [
+      { secid: "AFLT", name: "Аэрофлот" },
+      { secid: "FLOT", name: "Совкомфлот" },
+    ],
+  },
+  {
+    sector: "Химия",
+    items: [{ secid: "PHOR", name: "ФосАгро" }],
+  },
+];
+
+// Строится из того же ALL-борда TQBR, что и топ-20 по обороту (buildTopStocks) —
+// отдельного запроса не требует, доступно только при ?scope=full.
+function buildSectorStocks(json: unknown): SectorGroup[] {
+  const md = new Map<string, Record<string, unknown>>();
+  parseIssTable(json, "marketdata").forEach((r) => {
+    if (typeof r["SECID"] === "string") md.set(r["SECID"], r);
+  });
+  return SECTOR_GROUPS.map((group) => ({
+    sector: group.sector,
+    quotes: group.items
+      .map(({ secid, name }): Quote | null => {
+        const r = md.get(secid);
+        if (!r || lastOrNull(r["LAST"]) === null) return null;
+        return {
+          secid,
+          name,
+          last: lastOrNull(r["LAST"]),
+          changePct: num(r["LASTTOPREVPRICE"]),
+          open: lastOrNull(r["OPEN"]),
+          high: lastOrNull(r["HIGH"]),
+          low: lastOrNull(r["LOW"]),
+          unit: "₽",
+        };
+      })
+      .filter((q): q is Quote => q !== null),
+  })).filter((g) => g.quotes.length > 0);
 }
 
 // Фронт-месяц серии ASSETCODE: строка с валидной ценой и минимальной экспирацией.
@@ -1009,6 +1139,7 @@ export async function GET(request: Request) {
     currencies,
     topStocksByVolume: val(topStocksR) ? buildTopStocks(val(topStocksR)) : [],
     topFuturesByVolume: val(topFuturesR) ? buildTopFutures(val(topFuturesR)) : [],
+    sectorStocks: val(topStocksR) ? buildSectorStocks(val(topStocksR)) : [],
     sparklines: {
       imoex: buildSparkline(val(sparkImoexR)),
       rtsi: buildSparkline(val(sparkRtsiR)),

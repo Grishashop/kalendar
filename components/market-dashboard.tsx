@@ -379,6 +379,16 @@ function IndexCard({
   );
 }
 
+// Валюты уже приходят в нужном порядке (Доллар, Евро, Юань) — сырьё с
+// сервера идёт как Brent/Золото/Газ (см. buildCommodities), тут для
+// панели "Валюты и сырьё" переставляем под Золото/Нефть/Газ.
+const COMMODITY_ORDER = ["Золото", "Brent", "Природный газ"];
+function orderCommodities(commodities: Quote[]): Quote[] {
+  return [...commodities].sort(
+    (a, b) => COMMODITY_ORDER.indexOf(a.name) - COMMODITY_ORDER.indexOf(b.name),
+  );
+}
+
 function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
   return (
     <div
@@ -518,6 +528,14 @@ function EmptyNote() {
 
 // --- Основной компонент ---
 
+// Три режима отображения акций: «По отраслям» и «Топ20» требуют
+// scope=full (весь борд TQBR), «Фишки» — только базовый набор.
+const STOCK_VIEWS: { key: "sectors" | "chips" | "top20"; label: string }[] = [
+  { key: "sectors", label: "По отраслям" },
+  { key: "chips", label: "Фишки" },
+  { key: "top20", label: "Топ20" },
+];
+
 export function MarketDashboard() {
   const [data, setData] = useState<MarketResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -525,7 +543,9 @@ export function MarketDashboard() {
   const [comment, setComment] = useState("");
   const isEditedRef = useRef(false);
   const commentRef = useRef<HTMLTextAreaElement>(null);
-  const [compact, setCompact] = useState(false);
+  const [stockView, setStockView] = useState<"chips" | "sectors" | "top20">(
+    "chips",
+  );
   // Что сейчас реально загружено в data — "full" содержит топ-20 по
   // обороту (акции+фьючерсы), "compact" — нет. Нужно, чтобы понять,
   // требуется ли догрузка при переключении на расширенный вид.
@@ -588,7 +608,10 @@ export function MarketDashboard() {
 
   // Плотность запоминается между открытиями (удобно для повторных скриншотов).
   useEffect(() => {
-    if (localStorage.getItem("market-compact") === "1") setCompact(true);
+    const saved = localStorage.getItem("market-view");
+    if (saved === "chips" || saved === "sectors" || saved === "top20") {
+      setStockView(saved);
+    }
   }, []);
 
   // Авто-высота textarea под содержимое.
@@ -619,6 +642,13 @@ export function MarketDashboard() {
       })
     : null;
 
+  // Плотная вёрстка (мелкие отступы/шрифты) — для всего, кроме «Топ20»,
+  // где нужна ширина под два столбца. «max-w-2xl» — только у «Фишек»
+  // (узкий скриншот-дружелюбный вид); «По отраслям» использует всю
+  // ширину под сетку из 9 секторных блоков.
+  const dense = stockView !== "top20";
+  const narrow = stockView === "chips";
+
   return (
     <div className="min-h-screen bg-[#0b1220] px-4 py-6 text-slate-100">
       <div className="mx-auto max-w-5xl">
@@ -626,28 +656,37 @@ export function MarketDashboard() {
             кнопку "Обновить" при первом заходе просто негде нажать. */}
         <div className="mb-4 flex flex-wrap items-center gap-2 print:hidden">
           <button
-            onClick={() => void load(false, compact ? "compact" : "full")}
+            onClick={() =>
+              void load(false, stockView === "chips" ? "compact" : "full")
+            }
             disabled={loading}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
             {loading ? `Обновление… ${elapsedSec}с` : "Обновить"}
           </button>
-          <button
-            onClick={() => {
-              const next = !compact;
-              setCompact(next);
-              localStorage.setItem("market-compact", next ? "1" : "0");
-              // Переключились на расширенный вид, а топ-20 ещё не грузили —
-              // догружаем в фоне (данные уже на экране, большой оверлей
-              // загрузки не покажется — он гейтится на !data).
-              if (!next && dataScope !== "full" && !loading) {
-                void load(false, "full");
-              }
-            }}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
-          >
-            {compact ? "Расширенный вид" : "Компактный вид"}
-          </button>
+          <div className="flex gap-1 rounded-lg border border-slate-700 bg-slate-800 p-1">
+            {STOCK_VIEWS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => {
+                  setStockView(key);
+                  localStorage.setItem("market-view", key);
+                  // "По отраслям" и "Топ20" тянут весь борд TQBR (scope=full) —
+                  // догружаем в фоне, если раньше грузили только компактный набор.
+                  if (key !== "chips" && dataScope !== "full" && !loading) {
+                    void load(false, "full");
+                  }
+                }}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  stockView === key
+                    ? "bg-emerald-600 text-white"
+                    : "text-slate-300 hover:bg-slate-700"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => {
               if (data) {
@@ -700,7 +739,9 @@ export function MarketDashboard() {
             </div>
             <div className="mt-1 text-sm text-slate-400">{error}</div>
             <button
-              onClick={() => void load(true, compact ? "compact" : "full")}
+              onClick={() =>
+                void load(true, stockView === "chips" ? "compact" : "full")
+              }
               className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
             >
               Повторить
@@ -745,17 +786,17 @@ export function MarketDashboard() {
         {/* Зона дашборда (скриншотится) */}
         {data && (
           <div
-            className={`rounded-2xl border border-slate-800 bg-[#0b1220] ${compact ? "p-4" : "p-6"}`}
+            className={`rounded-2xl border border-slate-800 bg-[#0b1220] ${dense ? "p-4" : "p-6"}`}
           >
             {/* Шапка */}
             <header
-              className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 ${compact ? "pb-3" : "pb-4"}`}
+              className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 ${dense ? "pb-3" : "pb-4"}`}
             >
               <div>
                 <div className="flex items-center gap-2">
                   <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
                   <h1
-                    className={`font-bold text-slate-100 ${compact ? "text-lg" : "text-xl"}`}
+                    className={`font-bold text-slate-100 ${dense ? "text-lg" : "text-xl"}`}
                   >
                     Российский рынок · Обзор
                   </h1>
@@ -770,20 +811,20 @@ export function MarketDashboard() {
               </div>
             </header>
 
-            {/* Котировки: в компактном режиме уже, чтобы убрать пустоту.
+            {/* Котировки: в узком (Фишки) режиме уже, чтобы убрать пустоту.
                 Комментарий и подвал остаются на всю ширину. */}
-            <div className={compact ? "max-w-2xl" : ""}>
+            <div className={narrow ? "max-w-2xl" : ""}>
             {/* Индексы */}
-            <section className={compact ? "mt-3" : "mt-5"}>
+            <section className={dense ? "mt-3" : "mt-5"}>
               {data.indices.length > 0 ? (
                 <div
-                  className={`grid grid-cols-1 sm:grid-cols-2 ${compact ? "gap-3" : "gap-4"}`}
+                  className={`grid grid-cols-1 sm:grid-cols-2 ${dense ? "gap-3" : "gap-4"}`}
                 >
                   {data.indices.map((q) => (
                     <IndexCard
                       key={q.secid}
                       q={q}
-                      compact={compact}
+                      compact={dense}
                       spark={
                         q.secid === "IMOEX"
                           ? data.sparklines.imoex
@@ -797,35 +838,32 @@ export function MarketDashboard() {
               )}
             </section>
 
-            {/* Валюты и сырьё */}
-            <section className={compact ? "mt-3" : "mt-5"}>
+            {/* Валюты и сырьё: всегда одна строка на 6 карточек в
+                фиксированном порядке (Доллар, Евро, Юань, Золото, Нефть, Газ). */}
+            <section className={dense ? "mt-3" : "mt-5"}>
               <h2
-                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${compact ? "mb-1.5" : "mb-2"}`}
+                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${dense ? "mb-1.5" : "mb-2"}`}
               >
                 Валюты и сырьё
               </h2>
               {data.currencies.length + data.commodities.length > 0 ? (
-                <div
-                  className={
-                    compact
-                      ? "grid grid-cols-3 gap-3"
-                      : "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
-                  }
-                >
-                  {[...data.currencies, ...data.commodities].map((q) => (
-                    <MiniCard key={q.secid} q={q} compact={compact} />
-                  ))}
+                <div className="grid grid-cols-6 gap-2">
+                  {[...data.currencies, ...orderCommodities(data.commodities)].map(
+                    (q) => (
+                      <MiniCard key={q.secid} q={q} compact />
+                    ),
+                  )}
                 </div>
               ) : (
                 <EmptyNote />
               )}
             </section>
 
-            {/* Акции: компактный вид — фиксированные "голубые фишки" (10 бумаг,
-                для скриншотов); расширенный вид — два столбца топ-20 по обороту
-                (акции TQBR / ближайшие фьючерсы FORTS), независимо от
-                STOCK_TICKERS. */}
-            {compact ? (
+            {/* Акции: «Фишки» — фиксированный список (10 бумаг, для
+                скриншотов); «По отраслям» — те же бумаги, сгруппированные по
+                секторам IMOEX; «Топ20» — два столбца топ-20 по обороту (акции
+                TQBR / ближайшие фьючерсы FORTS), независимо от STOCK_TICKERS. */}
+            {stockView === "chips" ? (
               <section className="mt-3">
                 <h2 className="mb-1.5 text-sm font-semibold uppercase tracking-wide text-slate-400">
                   Голубые фишки
@@ -833,7 +871,36 @@ export function MarketDashboard() {
                 {data.stocks.length > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
                     {data.stocks.map((q) => (
-                      <StockRow key={q.secid} q={q} compact={compact} />
+                      <StockRow key={q.secid} q={q} compact />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyNote />
+                )}
+              </section>
+            ) : stockView === "sectors" ? (
+              <section className="mt-3">
+                <h2 className="mb-1.5 text-sm font-semibold uppercase tracking-wide text-slate-400">
+                  По отраслям
+                </h2>
+                {loading && dataScope !== "full" ? (
+                  <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-700 border-t-emerald-400" />
+                    Загружаем по отраслям…
+                  </div>
+                ) : data.sectorStocks.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {data.sectorStocks.map((group) => (
+                      <div key={group.sector}>
+                        <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          {group.sector}
+                        </h3>
+                        <div className="space-y-1">
+                          {group.quotes.map((q) => (
+                            <VolumeRow key={q.secid} q={q} />
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 ) : (
@@ -888,14 +955,14 @@ export function MarketDashboard() {
             </div>
 
             {/* Комментарий */}
-            <section className={compact ? "mt-3" : "mt-5"}>
+            <section className={dense ? "mt-3" : "mt-5"}>
               <h2
-                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${compact ? "mb-1.5" : "mb-2"}`}
+                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${dense ? "mb-1.5" : "mb-2"}`}
               >
                 Комментарий
               </h2>
               <div
-                className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-3" : "p-4"}`}
+                className={`rounded-xl border border-slate-800 bg-slate-900 ${dense ? "p-3" : "p-4"}`}
               >
                 <textarea
                   ref={commentRef}
@@ -904,7 +971,7 @@ export function MarketDashboard() {
                     setComment(e.target.value);
                     isEditedRef.current = true;
                   }}
-                  rows={compact ? 2 : 3}
+                  rows={dense ? 2 : 3}
                   className="w-full resize-none border-none bg-transparent text-slate-100 focus:outline-none"
                   placeholder="Комментарий к рынку…"
                 />
@@ -913,7 +980,7 @@ export function MarketDashboard() {
 
             {/* Подвал */}
             <footer
-              className={`border-t border-slate-800 text-xs text-slate-500 ${compact ? "mt-3 pt-2" : "mt-5 pt-3"}`}
+              className={`border-t border-slate-800 text-xs text-slate-500 ${dense ? "mt-3 pt-2" : "mt-5 pt-3"}`}
             >
               Источники: Московская биржа (ISS), ЦБ РФ · Не является
               индивидуальной инвестиционной рекомендацией · Сформировано в{" "}
