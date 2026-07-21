@@ -131,6 +131,7 @@ async function fetchJson(
   url: string,
   attempts = 3,
   timeoutMs = 9000,
+  revalidateSeconds = 8,
 ): Promise<unknown> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -139,8 +140,8 @@ async function fetchJson(
         // no-store тут отключил бы Data Cache для этого fetch — с
         // export const dynamic = "force-dynamic" на сам route handler это
         // не влияет, но next.revalidate всё равно даёт дедупликацию
-        // одинаковых URL в пределах 8с без похода на MOEX/ЦБ.
-        next: { revalidate: 8 },
+        // одинаковых URL в пределах revalidateSeconds без похода на MOEX/ЦБ.
+        next: { revalidate: revalidateSeconds },
         headers: FETCH_HEADERS,
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -395,12 +396,18 @@ function closeBeforeLastTradingDay(rows: Record<string, unknown>[]): number | nu
 // причиной массовых ConnectTimeoutError, воспроизведённых вживую при
 // повторных нагрузочных прогонах: после них IMOEX периодически откатывался
 // на исходное значение MOEX (снова от пятницы) — не из-за логики
-// пересчёта, а потому что сам запрос свечи для него не успевал выполниться
-// без единой попытки повтора. Поэтому: короткий таймаут на попытку (не
-// ждём долго — это необязательное косметическое улучшение, а не основные
-// данные), пул из CANDLE_CONCURRENCY одновременных запросов вместо залпа,
-// и общий бюджет времени CANDLE_BUDGET_MS — то, что не успело, остаётся
-// с исходным значением MOEX, а не задерживает и не роняет ответ.
+// пересчёта, а потому что сам запрос свечи для него не успевал выполниться.
+// Живой пример поймали СНОВА уже после фикса: SBER/VTBR показали -6,8%/
+// -5,9% (сырое значение MOEX от пятницы) вместо верных +4,7%/+9,5% —
+// прямая проверка тем же кодом секундами позже дала правильный ответ,
+// то есть коррекция не сломана, а просто ОДНА неудачная попытка на
+// MOEX ISS (флап сети) откатывала на баг, который мы чиним. Раньше
+// сознательно не давали ретрай (боялись повторить шторм соединений),
+// но close-до-последнего-торгового-дня — стабильные данные (не меняются
+// до следующего закрытия сессии), поэтому кэшируем их на 5 минут
+// (next.revalidate), а не на 8с как реалтайм-котировки: большинство
+// повторных кликов вообще не бьёт по MOEX заново, и это освобождает
+// бюджет на второй запрос при неудаче первого.
 async function weekendPrevClose(
   spec: CandleSpec,
   secid: string,
@@ -411,7 +418,7 @@ async function weekendPrevClose(
       `https://iss.moex.com/iss/engines/${spec.engine}/markets/${spec.market}/boards/${spec.board}` +
       `/securities/${encodeURIComponent(secid)}/candles.json` +
       `?interval=60&iss.meta=off&candles.columns=close,begin&from=${from}`;
-    const json = await fetchJson(url, 1, 4000);
+    const json = await fetchJson(url, 2, 4000, 300);
     return closeBeforeLastTradingDay(parseIssTable(json, "candles"));
   } catch {
     return null;
