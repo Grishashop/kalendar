@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Coins, Droplet, Flame, Landmark, Globe } from "lucide-react";
+import Link from "next/link";
+import { Coins, Droplet, Flame, Landmark, Globe, RotateCcw } from "lucide-react";
 import type { MarketResponse, Quote, IndexQuote } from "@/app/api/market/route";
 
 // Фиксированная тёмная тема финансового терминала. Внутри «зоны скриншота»
@@ -687,18 +688,12 @@ export function MarketDashboard() {
               </button>
             ))}
           </div>
-          <button
-            onClick={() => {
-              if (data) {
-                setComment(generateCommentary(data));
-                isEditedRef.current = false;
-              }
-            }}
-            disabled={!data}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700 disabled:opacity-50"
+          <Link
+            href="/market/info"
+            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700"
           >
-            Сбросить комментарий
-          </button>
+            Справочник
+          </Link>
         </div>
 
         {/* Обновление, когда данные уже на экране — раньше единственной
@@ -954,9 +949,23 @@ export function MarketDashboard() {
             {/* Комментарий */}
             <section className={dense ? "mt-3" : "mt-5"}>
               <h2
-                className={`text-sm font-semibold uppercase tracking-wide text-slate-400 ${dense ? "mb-1.5" : "mb-2"}`}
+                className={`flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-400 ${dense ? "mb-1.5" : "mb-2"}`}
               >
                 Комментарий
+                <button
+                  onClick={() => {
+                    if (data) {
+                      setComment(generateCommentary(data));
+                      isEditedRef.current = false;
+                    }
+                  }}
+                  disabled={!data}
+                  title="Сбросить комментарий"
+                  aria-label="Сбросить комментарий"
+                  className="rounded-md p-1 text-slate-500 transition hover:bg-slate-800 hover:text-slate-300 disabled:opacity-40 disabled:hover:bg-transparent print:hidden"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                </button>
               </h2>
               <div
                 className={`rounded-xl border border-slate-800 bg-slate-900 ${dense ? "p-3" : "p-4"}`}

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { FETCH_HEADERS, fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
+import { SECTOR_GROUPS } from "@/lib/moex/sectors";
 
 // Дашборд «Российский рынок»: агрегирует котировки из открытых источников
 // (Московская биржа ISS + курсы ЦБ РФ через зеркало cbr-xml-daily.ru).
@@ -112,73 +114,6 @@ const STOCK_NAMES: Record<string, string> = {
   PLZL: "Полюс",
 };
 
-// --- Хелперы ---
-
-// Превращает ISS-блок { columns, data } в массив объектов { COLUMN: value }.
-function parseIssTable(
-  json: unknown,
-  block: string,
-): Record<string, unknown>[] {
-  const table = (json as Record<string, unknown> | null)?.[block] as
-    | { columns?: unknown; data?: unknown }
-    | undefined;
-  const columns = table?.columns;
-  const data = table?.data;
-  if (!Array.isArray(columns) || !Array.isArray(data)) return [];
-  return (data as unknown[][]).map((row) => {
-    const obj: Record<string, unknown> = {};
-    (columns as string[]).forEach((col, i) => {
-      obj[col] = row[i];
-    });
-    return obj;
-  });
-}
-
-// MOEX ISS иногда отклоняет/таймаутит отдельные из параллельных запросов
-// (Vercel в США, MOEX в Москве + троттлинг по IP). Поэтому: браузерный
-// User-Agent, ограниченный таймаут на попытку и ретраи с backoff+jitter.
-const FETCH_HEADERS: Record<string, string> = {
-  "User-Agent":
-    "Mozilla/5.0 (compatible; LavochkaMarketDashboard/1.0; +https://lavochka.vercel.app)",
-  Accept: "application/json, text/javascript, */*",
-};
-
-async function fetchJson(
-  url: string,
-  attempts = 3,
-  timeoutMs = 9000,
-  revalidateSeconds = 8,
-): Promise<unknown> {
-  let lastErr: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = await fetch(url, {
-        // no-store тут отключил бы Data Cache для этого fetch — с
-        // export const dynamic = "force-dynamic" на сам route handler это
-        // не влияет, но next.revalidate всё равно даёт дедупликацию
-        // одинаковых URL в пределах revalidateSeconds без похода на MOEX/ЦБ.
-        next: { revalidate: revalidateSeconds },
-        headers: FETCH_HEADERS,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status} для ${url}`);
-      // Парсим из текста: ЦБ отдаёт application/javascript, на котором
-      // res.json() падает; для MOEX (application/json) JSON.parse тоже валиден.
-      const text = await res.text();
-      return JSON.parse(text);
-    } catch (e) {
-      lastErr = e;
-      if (i < attempts - 1) {
-        const delay = 300 * (i + 1) + Math.floor(Math.random() * 300);
-        const { promise, resolve } = Promise.withResolvers<void>();
-        setTimeout(resolve, delay);
-        await promise;
-      }
-    }
-  }
-  throw lastErr;
-}
-
 // --- ALOR (авторизованный, реалтайм) ---
 //
 // Публичный (без токена) ALOR даёт те же 15 минут задержки, что и MOEX —
@@ -280,16 +215,6 @@ function applyAlorQuote(
   return true;
 }
 
-function num(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-// last === 0 или отсутствует → сделок не было, показываем null.
-function lastOrNull(v: unknown): number | null {
-  const n = num(v);
-  return n && n !== 0 ? n : null;
-}
-
 // Цена фьючерса: последняя сделка, иначе расчётная цена (в выходные сделок нет).
 function futuresPrice(m: Record<string, unknown>): number | null {
   return lastOrNull(m["LAST"]) ?? lastOrNull(m["SETTLEPRICE"]);
@@ -333,12 +258,6 @@ function candlesUrl(board: string, secid: string, from: string): string {
     `https://iss.moex.com/iss/engines/stock/markets/index/boards/${board}/securities/${secid}/candles.json` +
     `?interval=10&iss.meta=off&candles.columns=close,begin&from=${from}`
   );
-}
-
-// Сегодняшняя дата по МСК (UTC+3) в формате YYYY-MM-DD.
-function todayMsk(): string {
-  const now = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  return now.toISOString().slice(0, 10);
 }
 
 // Текущее время по МСК (UTC+3) в формате HH:MM:SS.
@@ -693,94 +612,6 @@ function buildTopStocks(json: unknown): Quote[] {
     .slice(0, 20)
     .map(({ quote }) => quote);
 }
-
-// Фиксированный набор ~40 самых весомых по индексу IMOEX бумаг,
-// сгруппированных по отраслям (агрегация по факт. составу и весам IMOEX,
-// проверено вручную по live-данным MOEX ISS) — для вида «По отраслям».
-// Порядок секторов и бумаг внутри — по убыванию суммарного веса в индексе.
-const SECTOR_GROUPS: { sector: string; items: { secid: string; name: string }[] }[] = [
-  {
-    sector: "Нефть и газ",
-    items: [
-      { secid: "LKOH", name: "Лукойл" },
-      { secid: "GAZP", name: "Газпром" },
-      { secid: "TATN", name: "Татнефть" },
-      { secid: "NVTK", name: "Новатэк" },
-      { secid: "ROSN", name: "Роснефть" },
-      { secid: "SNGS", name: "Сургутнефтегаз" },
-      { secid: "TRNFP", name: "Транснефть" },
-    ],
-  },
-  {
-    sector: "Финансы",
-    items: [
-      { secid: "SBER", name: "Сбербанк" },
-      { secid: "T", name: "Т-Технологии" },
-      { secid: "VTBR", name: "ВТБ" },
-      { secid: "MOEX", name: "МосБиржа" },
-      { secid: "CBOM", name: "МКБ" },
-      { secid: "DOMRF", name: "ДОМ.РФ" },
-      { secid: "SVCB", name: "Совкомбанк" },
-    ],
-  },
-  {
-    sector: "Металлы и добыча",
-    items: [
-      { secid: "GMKN", name: "Норникель" },
-      { secid: "PLZL", name: "Полюс" },
-      { secid: "CHMF", name: "Северсталь" },
-      { secid: "RUAL", name: "Русал" },
-      { secid: "NLMK", name: "НЛМК" },
-      { secid: "MAGN", name: "ММК" },
-      { secid: "ALRS", name: "АЛРОСА" },
-    ],
-  },
-  {
-    sector: "Электроэнергетика",
-    items: [
-      { secid: "IRAO", name: "ИнтерРАО" },
-      { secid: "MSNG", name: "Мосэнерго" },
-    ],
-  },
-  {
-    sector: "Транспорт",
-    items: [
-      { secid: "AFLT", name: "Аэрофлот" },
-      { secid: "FLOT", name: "Совкомфлот" },
-    ],
-  },
-  {
-    sector: "Химия",
-    items: [{ secid: "PHOR", name: "ФосАгро" }],
-  },
-  {
-    sector: "Технологии",
-    items: [
-      { secid: "YDEX", name: "Яндекс" },
-      { secid: "HEAD", name: "Хэдхантер" },
-      { secid: "VKCO", name: "VK" },
-      { secid: "POSI", name: "Позитив" },
-      { secid: "CNRU", name: "Циан" },
-    ],
-  },
-  {
-    sector: "Потребительский сектор",
-    items: [
-      { secid: "OZON", name: "Озон" },
-      { secid: "X5", name: "Х5" },
-      { secid: "LENT", name: "Лента" },
-      { secid: "RAGR", name: "Русагро" },
-      { secid: "MDMG", name: "Мать и Дитя" },
-    ],
-  },
-  {
-    sector: "Телекоммуникации",
-    items: [
-      { secid: "MTSS", name: "МТС" },
-      { secid: "RTKM", name: "Ростелеком" },
-    ],
-  },
-];
 
 // Строится из того же ALL-борда TQBR, что и топ-20 по обороту (buildTopStocks) —
 // отдельного запроса не требует, доступно только при ?scope=full.
