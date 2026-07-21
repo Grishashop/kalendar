@@ -619,7 +619,7 @@ export function MarketDashboard() {
             disabled={loading}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
-            {loading ? "Обновление…" : "Обновить"}
+            {loading ? `Обновление… ${elapsedSec}с` : "Обновить"}
           </button>
           <button
             onClick={() => {
@@ -650,6 +650,24 @@ export function MarketDashboard() {
             Сбросить комментарий
           </button>
         </div>
+
+        {/* Обновление, когда данные уже на экране — раньше единственной
+            обратной связью было изменение текста кнопки на "Обновление…",
+            без ощущения прогресса. Тот же псевдопрогресс-бар, что и на
+            первой загрузке, просто в компактной строке под панелью кнопок
+            вместо большого блока — данные под ним никуда не пропадают. */}
+        {loading && data && (
+          <div
+            role="progressbar"
+            aria-label="Обновление котировок"
+            className="mb-4 h-1 w-full overflow-hidden rounded-full bg-slate-800 print:hidden"
+          >
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-[width] duration-200 ease-linear"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        )}
 
         {/* Обновление после первого успешного захода упало, но старые
             данные ещё есть — раньше это было НЕВИДИМО (баннер ниже
