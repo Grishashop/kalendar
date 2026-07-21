@@ -404,7 +404,7 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
       </div>
       {q.future && q.future.last !== null && (
         <div
-          className={`mt-1 flex items-baseline justify-between gap-1 border-t border-slate-800 pt-1 ${compact ? "text-[10px]" : "text-[11px]"}`}
+          className={`mt-1 flex items-baseline justify-end gap-1.5 border-t border-slate-800 pt-1 ${compact ? "text-[10px]" : "text-[11px]"}`}
         >
           <span className="text-slate-400">Фьюч.</span>
           <span
