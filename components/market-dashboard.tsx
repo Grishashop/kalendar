@@ -682,7 +682,7 @@ export function MarketDashboard() {
                 }}
                 className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
                   stockView === key
-                    ? "bg-emerald-600 text-white"
+                    ? "bg-slate-100 text-slate-900"
                     : "text-slate-300 hover:bg-slate-700"
                 }`}
               >
