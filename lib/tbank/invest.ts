@@ -59,10 +59,8 @@ async function tbankFetch(method: string, body: Record<string, unknown>): Promis
       }
     }
   }
-  console.error(
-    `T-Bank ${method} не удался:`,
-    lastErr instanceof Error ? lastErr.message : lastErr,
-  );
+  const cause = lastErr instanceof Error ? (lastErr.cause ?? lastErr.message) : lastErr;
+  console.error(`T-Bank ${method} не удался:`, cause);
   throw lastErr;
 }
 
