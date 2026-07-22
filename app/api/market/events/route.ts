@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchJson, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { SECTOR_GROUPS } from "@/lib/moex/sectors";
-import { TICKER_TO_TBANK_UID, getDividendsByUid } from "@/lib/tbank/invest";
+import { TICKER_TO_TBANK_UID, getDividendsByUid, dividendDateRange } from "@/lib/tbank/invest";
 
 // Сводные события рынка для /market/info: ближайшие дивиденды по фиксированной
 // вселенной IMOEX-бумаг (SECTOR_GROUPS — bulk-эндпоинта дивидендов у ISS нет)
@@ -83,9 +83,7 @@ async function loadDividends(): Promise<{
   recent: EventDividend[];
   failed: boolean;
 }> {
-  const now = Date.now();
-  const fromIso = new Date(now - 400 * 86400000).toISOString();
-  const toIso = new Date(now + 400 * 86400000).toISOString();
+  const { fromIso, toIso } = dividendDateRange(400, 400);
 
   const results = await Promise.allSettled(
     DIVIDEND_TICKERS.map(({ secid, name }) =>

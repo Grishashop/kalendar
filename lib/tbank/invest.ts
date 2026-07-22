@@ -12,6 +12,7 @@
 
 import { Agent, fetch as undiciFetch } from "undici";
 import tls from "node:tls";
+import { unstable_cache } from "next/cache";
 
 // T-Bank (как и другие крупные российские банки) с 2022 года использует TLS-
 // сертификат, выданный государственным «Russian Trusted CA» (Минцифры РФ) —
@@ -207,49 +208,84 @@ export const TICKER_TO_TBANK_UID: Record<string, string> = {
   RTKM: "02eda274-10c4-4815-8e02-a8ee7eaf485b",
 };
 
-export async function getDividendsByUid(
-  uid: string,
-  fromIso: string,
-  toIso: string,
-): Promise<TBankDividend[]> {
-  const json = (await tbankFetch("GetDividends", {
-    instrumentId: uid,
-    from: fromIso,
-    to: toIso,
-  })) as { dividends?: unknown[] };
+// Раньше эти вызовы шли через next.revalidate обычного fetch() и
+// дедуплицировались Data Cache Next.js; переключение на undici's own
+// fetch (нужно для доверенного CA, см. выше) обошло этот кэш — каждый
+// визит на /market/info или /api/market/events бил живой запрос к
+// T-Bank для всех 38 тикеров разом. При любом единичном сетевом сбое
+// (таймаут, обрыв соединения к серверу в РФ) карточка молча падает на
+// устаревший MOEX ISS фолбэк — воспроизводилось непредсказуемо (иногда
+// грузится, иногда нет: мигающие «Ближайшие дивиденды»). unstable_cache
+// восстанавливает кэширование на уровне Data Cache Next.js вручную:
+// ключ строится из аргументов (uid, диапазон дат) автоматически,
+// поэтому единственный успешный запрос на тикер держится revalidate
+// секунд и переживает последующие сбойные попытки T-Bank. Ошибки не
+// кэшируются Next.js — следующий вызов после сбоя пробует T-Bank снова.
+export const getDividendsByUid = unstable_cache(
+  async (uid: string, fromIso: string, toIso: string): Promise<TBankDividend[]> => {
+    const json = (await tbankFetch("GetDividends", {
+      instrumentId: uid,
+      from: fromIso,
+      to: toIso,
+    })) as { dividends?: unknown[] };
 
-  const rows = Array.isArray(json.dividends) ? json.dividends : [];
-  return rows
-    .map((r) => {
-      const row = r as Record<string, unknown>;
-      const recordDate = typeof row["recordDate"] === "string" ? row["recordDate"] : null;
-      if (!recordDate) return null;
-      const money = row["dividendNet"] as
-        | { units?: string; nano?: number; currency?: string }
-        | undefined;
-      return {
-        recordDate: recordDate.slice(0, 10),
-        value: moneyValueToNumber(money),
-        currency: (money?.currency ?? "rub").toUpperCase(),
-      } satisfies TBankDividend;
-    })
-    .filter((d): d is TBankDividend => d !== null);
+    const rows = Array.isArray(json.dividends) ? json.dividends : [];
+    return rows
+      .map((r) => {
+        const row = r as Record<string, unknown>;
+        const recordDate = typeof row["recordDate"] === "string" ? row["recordDate"] : null;
+        if (!recordDate) return null;
+        const money = row["dividendNet"] as
+          | { units?: string; nano?: number; currency?: string }
+          | undefined;
+        return {
+          recordDate: recordDate.slice(0, 10),
+          value: moneyValueToNumber(money),
+          currency: (money?.currency ?? "rub").toUpperCase(),
+        } satisfies TBankDividend;
+      })
+      .filter((d): d is TBankDividend => d !== null);
+  },
+  ["tbank-dividends"],
+  { revalidate: 21600 },
+);
+
+// Диапазон запроса округляем до суток (UTC-полночь) — иначе Date.now() с
+// точностью до миллисекунды на каждый вызов ломает ключ кэша выше: у
+// unstable_cache ключ строится из сериализованных аргументов, и вечно
+// «новый» fromIso/toIso значил бы, что кэш никогда не попадает (каждый
+// запрос уникален) и защиты от сбоя T-Bank так и не появляется.
+export function dividendDateRange(
+  pastDays: number,
+  futureDays: number,
+): { fromIso: string; toIso: string } {
+  const todayUtc = new Date();
+  todayUtc.setUTCHours(0, 0, 0, 0);
+  return {
+    fromIso: new Date(todayUtc.getTime() - pastDays * 86400000).toISOString(),
+    toIso: new Date(todayUtc.getTime() + futureDays * 86400000).toISOString(),
+  };
 }
 
 // Резолвит T-Bank instrument_uid по тикеру на площадке TQBR (MOEX) — для
 // инструментов вне TICKER_TO_TBANK_UID (карточка в /market/info ищет
 // произвольную бумагу, а не только фиксированный список SECTOR_GROUPS).
-export async function findTqbrInstrumentUid(ticker: string): Promise<string | null> {
-  const json = (await tbankFetch("FindInstrument", {
-    query: ticker,
-    instrumentKind: "INSTRUMENT_TYPE_SHARE",
-  })) as { instruments?: unknown[] };
+// Кэшируем дольше (сутки) — маппинг тикер -> uid практически не меняется.
+export const findTqbrInstrumentUid = unstable_cache(
+  async (ticker: string): Promise<string | null> => {
+    const json = (await tbankFetch("FindInstrument", {
+      query: ticker,
+      instrumentKind: "INSTRUMENT_TYPE_SHARE",
+    })) as { instruments?: unknown[] };
 
-  const rows = Array.isArray(json.instruments) ? json.instruments : [];
-  const match = rows.find((r) => {
-    const row = r as Record<string, unknown>;
-    return row["ticker"] === ticker && row["classCode"] === "TQBR";
-  }) as Record<string, unknown> | undefined;
+    const rows = Array.isArray(json.instruments) ? json.instruments : [];
+    const match = rows.find((r) => {
+      const row = r as Record<string, unknown>;
+      return row["ticker"] === ticker && row["classCode"] === "TQBR";
+    }) as Record<string, unknown> | undefined;
 
-  return typeof match?.["uid"] === "string" ? match["uid"] : null;
-}
+    return typeof match?.["uid"] === "string" ? match["uid"] : null;
+  },
+  ["tbank-find-uid"],
+  { revalidate: 86400 },
+);
