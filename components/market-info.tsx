@@ -506,6 +506,8 @@ export function MarketInfo() {
                         <th className="pb-1 font-medium">Бумага</th>
                         <th className="pb-1 font-medium">Дата закрытия реестра</th>
                         <th className="pb-1 font-medium">Дивиденд</th>
+                        <th className="pb-1 text-right font-medium">Цена акции</th>
+                        <th className="pb-1 text-right font-medium">Див. Дох.</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -521,6 +523,12 @@ export function MarketInfo() {
                           <td className="py-1">{fmtDate(d.date)}</td>
                           <td className="py-1">
                             {fmtNum(d.value, 4)} {d.currency}
+                          </td>
+                          <td className="py-1 text-right">
+                            {d.price !== null ? fmtNum(d.price, 2) : "—"}
+                          </td>
+                          <td className="py-1 text-right text-emerald-400">
+                            {d.yieldPct !== null ? `${fmtNum(d.yieldPct, 2)}%` : "—"}
                           </td>
                         </tr>
                       ))}
@@ -540,6 +548,8 @@ export function MarketInfo() {
                         <th className="pb-1 font-medium">Бумага</th>
                         <th className="pb-1 font-medium">Дата закрытия реестра</th>
                         <th className="pb-1 font-medium">Дивиденд</th>
+                        <th className="pb-1 text-right font-medium">Цена акции</th>
+                        <th className="pb-1 text-right font-medium">Див. Дох.</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -555,6 +565,12 @@ export function MarketInfo() {
                           <td className="py-1">{fmtDate(d.date)}</td>
                           <td className="py-1">
                             {fmtNum(d.value, 4)} {d.currency}
+                          </td>
+                          <td className="py-1 text-right">
+                            {d.price !== null ? fmtNum(d.price, 2) : "—"}
+                          </td>
+                          <td className="py-1 text-right text-slate-400">
+                            {d.yieldPct !== null ? `${fmtNum(d.yieldPct, 2)}%` : "—"}
                           </td>
                         </tr>
                       ))}

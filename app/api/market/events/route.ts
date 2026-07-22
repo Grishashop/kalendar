@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 import { fetchJson, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { SECTOR_GROUPS } from "@/lib/moex/sectors";
-import { TICKER_TO_TBANK_UID, getDividendsByUid, dividendDateRange } from "@/lib/tbank/invest";
+import {
+  TICKER_TO_TBANK_UID,
+  getDividendsByUid,
+  getAllDividendPayingShares,
+  dividendDateRange,
+} from "@/lib/tbank/invest";
 
-// Сводные события рынка для /market/info: ближайшие дивиденды по фиксированной
-// вселенной IMOEX-бумаг (SECTOR_GROUPS — bulk-эндпоинта дивидендов у ISS нет)
-// и ближайшие по экспирации фронт-контракты FORTS по каждому базовому активу.
+// Сводные события рынка для /market/info: дивиденды по ВСЕМ дивидендным
+// акциям TQBR (площадка MOEX, полная вселенная из T-Bank Shares(), см.
+// getAllDividendPayingShares) и ближайшие по экспирации фронт-контракты
+// FORTS по каждому базовому активу.
 
-export const maxDuration = 30;
+export const maxDuration = 45;
 
 export interface EventDividend {
   secid: string;
@@ -15,6 +21,8 @@ export interface EventDividend {
   date: string;
   value: number;
   currency: string;
+  price: number | null; // текущая цена акции (MOEX ISS, TQBR, LAST)
+  yieldPct: number | null; // дивидендная доходность = value / price * 100
 }
 
 export interface EventExpiration {
@@ -30,22 +38,69 @@ export interface EventsResponse {
   expirations: EventExpiration[];
 }
 
-const DIVIDEND_TICKERS = SECTOR_GROUPS.flatMap((g) => g.items);
+// Фолбэк-вселенная на случай, если bulk-запрос T-Bank Shares() недоступен
+// (нет токена, сбой сети) — прежний вручную отобранный список ~40 самых
+// весомых по IMOEX бумаг.
+const FALLBACK_TICKERS = SECTOR_GROUPS.flatMap((g) => g.items);
 
 const URL_FORTS_FRONTS =
   "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,SECNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,VALTODAY,OPENPOSITION";
 
+// Текущие цены разом по всему TQBR-табло — один bulk-запрос вместо
+// отдельного похода за ценой на каждую бумагу дивидендного календаря.
+const URL_STOCKS_ALL_PRICES =
+  "https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities.json?iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST";
+
+async function loadPrices(): Promise<Map<string, number>> {
+  const prices = new Map<string, number>();
+  try {
+    const json = await fetchJson(URL_STOCKS_ALL_PRICES, 2, 9000, 60);
+    parseIssTable(json, "marketdata").forEach((r) => {
+      const secid = r["SECID"];
+      const last = r["LAST"];
+      if (typeof secid === "string" && typeof last === "number" && last > 0) {
+        prices.set(secid, last);
+      }
+    });
+  } catch {
+    // Цену/доходность просто не покажем — сами дивиденды это не блокирует.
+  }
+  return prices;
+}
+
+// Вселенная дивидендного календаря: тикер + T-Bank UID (известен заранее,
+// без похода за резолвом) + название. Основной источник — bulk Shares()
+// T-Bank (divYieldFlag = реально платит дивиденды, ~185 бумаг TQBR);
+// провал bulk-запроса → фиксированный список из SECTOR_GROUPS.
+async function loadDividendUniverse(): Promise<
+  { secid: string; name: string; uid: string | null }[]
+> {
+  try {
+    const shares = await getAllDividendPayingShares();
+    if (shares.length > 0) {
+      return shares.map((s) => ({ secid: s.ticker, name: s.name, uid: s.uid }));
+    }
+  } catch {
+    // Падаем на фиксированный список ниже.
+  }
+  return FALLBACK_TICKERS.map((t) => ({
+    secid: t.secid,
+    name: t.name,
+    uid: TICKER_TO_TBANK_UID[t.secid] ?? null,
+  }));
+}
+
 // T-Bank Invest API (см. lib/tbank/invest.ts) отдаёт заметно более свежие
-// дивиденды, чем MOEX ISS — используется первым; MOEX ISS остаётся
-// фолбэком на конкретный тикер, если T-Bank не настроен (нет токена) или
-// запрос не удался.
+// дивиденды, чем MOEX ISS — используется первым (uid уже известен из
+// loadDividendUniverse, повторный резолв не нужен); MOEX ISS остаётся
+// фолбэком на конкретный тикер, если T-Bank не настроен или запрос не удался.
 async function loadDividendsForTicker(
   secid: string,
   name: string,
+  uid: string | null,
   fromIso: string,
   toIso: string,
-): Promise<EventDividend[]> {
-  const uid = TICKER_TO_TBANK_UID[secid];
+): Promise<Omit<EventDividend, "price" | "yieldPct">[]> {
   if (uid) {
     try {
       const rows = await getDividendsByUid(uid, fromIso, toIso);
@@ -85,16 +140,24 @@ async function loadDividends(): Promise<{
 }> {
   const { fromIso, toIso } = dividendDateRange(400, 400);
 
+  const [universe, prices] = await Promise.all([loadDividendUniverse(), loadPrices()]);
+
   const results = await Promise.allSettled(
-    DIVIDEND_TICKERS.map(({ secid, name }) =>
-      loadDividendsForTicker(secid, name, fromIso, toIso),
+    universe.map(({ secid, name, uid }) =>
+      loadDividendsForTicker(secid, name, uid, fromIso, toIso),
     ),
   );
 
   const failed = results.every((r) => r.status === "rejected");
   const all: EventDividend[] = [];
   for (const r of results) {
-    if (r.status === "fulfilled") all.push(...r.value.filter((d) => d.date));
+    if (r.status !== "fulfilled") continue;
+    for (const d of r.value) {
+      if (!d.date) continue;
+      const price = prices.get(d.secid) ?? null;
+      const yieldPct = price && d.value > 0 ? (d.value / price) * 100 : null;
+      all.push({ ...d, price, yieldPct });
+    }
   }
 
   const today = todayMsk();
@@ -104,7 +167,7 @@ async function loadDividends(): Promise<{
   const recent = all
     .filter((d) => d.date < today)
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 10);
+    .slice(0, 30);
 
   return { upcoming, recent, failed };
 }

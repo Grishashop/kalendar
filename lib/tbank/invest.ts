@@ -290,3 +290,37 @@ export const findTqbrInstrumentUid = unstable_cache(
   ["tbank-find-uid"],
   { revalidate: 86400 },
 );
+
+export interface TBankShareInfo {
+  ticker: string;
+  uid: string;
+  name: string;
+}
+
+// Полная вселенная дивидендных акций TQBR (площадка MOEX) — не вручную
+// отобранные 38 бумаг из SECTOR_GROUPS, а ВСЕ акции, которые T-Bank помечает
+// флагом divYieldFlag (реально платят/платили дивиденды). Один bulk-запрос
+// Shares() отдаёт весь список инструментов с их UID разом — резолвить
+// каждый тикер отдельным FindInstrument не нужно. ~185 из ~255 TQBR-акций
+// на момент проверки. Кэшируем сутки — состав почти не меняется.
+export const getAllDividendPayingShares = unstable_cache(
+  async (): Promise<TBankShareInfo[]> => {
+    const json = (await tbankFetch("Shares", {
+      instrumentStatus: "INSTRUMENT_STATUS_BASE",
+    })) as { instruments?: unknown[] };
+
+    const rows = Array.isArray(json.instruments) ? json.instruments : [];
+    return rows
+      .map((r) => {
+        const row = r as Record<string, unknown>;
+        if (row["classCode"] !== "TQBR" || row["divYieldFlag"] !== true) return null;
+        const ticker = typeof row["ticker"] === "string" ? row["ticker"] : "";
+        const uid = typeof row["uid"] === "string" ? row["uid"] : "";
+        if (!ticker || !uid) return null;
+        return { ticker, uid, name: typeof row["name"] === "string" ? row["name"] : ticker };
+      })
+      .filter((s): s is TBankShareInfo => s !== null);
+  },
+  ["tbank-all-dividend-shares"],
+  { revalidate: 86400 },
+);
