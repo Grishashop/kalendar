@@ -529,10 +529,13 @@ export function MarketInfo() {
               <>
                 {events.dividends.upcoming.length > 0 ? (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[680px] text-sm">
+                    <table className="w-full min-w-[720px] text-sm">
                       <thead>
                         <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                          <th className="whitespace-nowrap pb-1 font-medium">Бумага</th>
+                          <th className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-800 bg-slate-900 pb-1 pr-3 font-medium">
+                            Тикер
+                          </th>
+                          <th className="whitespace-nowrap pb-1 font-medium">Название</th>
                           <th className="whitespace-nowrap pb-1 font-medium">
                             Дата закрытия реестра
                           </th>
@@ -555,10 +558,10 @@ export function MarketInfo() {
                             key={`up-${d.secid}-${d.date}-${i}`}
                             className="border-t border-slate-800/60"
                           >
-                            <td className="whitespace-nowrap py-1">
-                              <span className="font-medium text-slate-100">{d.secid}</span>{" "}
-                              <span className="text-slate-500">{d.name}</span>
+                            <td className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-800 bg-slate-900 py-1 pr-3 font-medium text-slate-100">
+                              {d.secid}
                             </td>
+                            <td className="whitespace-nowrap py-1 text-slate-400">{d.name}</td>
                             <td className="whitespace-nowrap py-1">{fmtDate(d.date)}</td>
                             <td className="whitespace-nowrap py-1">
                               {fmtNum(d.value, 4)} {d.currency}
@@ -596,10 +599,13 @@ export function MarketInfo() {
                 </h2>
                 {events.dividends.recent.length > 0 ? (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[680px] text-sm">
+                    <table className="w-full min-w-[720px] text-sm">
                       <thead>
                         <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                          <th className="whitespace-nowrap pb-1 font-medium">Бумага</th>
+                          <th className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-800 bg-slate-900 pb-1 pr-3 font-medium">
+                            Тикер
+                          </th>
+                          <th className="whitespace-nowrap pb-1 font-medium">Название</th>
                           <th className="whitespace-nowrap pb-1 font-medium">
                             Дата закрытия реестра
                           </th>
@@ -622,10 +628,10 @@ export function MarketInfo() {
                             key={`rec-${d.secid}-${d.date}-${i}`}
                             className="border-t border-slate-800/60"
                           >
-                            <td className="whitespace-nowrap py-1">
-                              <span className="font-medium text-slate-100">{d.secid}</span>{" "}
-                              <span className="text-slate-500">{d.name}</span>
+                            <td className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-800 bg-slate-900 py-1 pr-3 font-medium text-slate-100">
+                              {d.secid}
                             </td>
+                            <td className="whitespace-nowrap py-1 text-slate-400">{d.name}</td>
                             <td className="whitespace-nowrap py-1">{fmtDate(d.date)}</td>
                             <td className="whitespace-nowrap py-1">
                               {fmtNum(d.value, 4)} {d.currency}
