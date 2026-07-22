@@ -206,6 +206,7 @@ export const TICKER_TO_TBANK_UID: Record<string, string> = {
   MDMG: "0d53d29a-3794-41c6-ba72-556d46bacb46",
   MTSS: "cd8063ad-73ad-4b31-bd0d-93138d9e99a2",
   RTKM: "02eda274-10c4-4815-8e02-a8ee7eaf485b",
+  AKRN: "cd3affd4-3b50-43fd-b008-518f54108d59",
 };
 
 // Раньше эти вызовы шли через next.revalidate обычного fetch() и

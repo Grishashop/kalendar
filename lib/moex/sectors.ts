@@ -57,7 +57,10 @@ export const SECTOR_GROUPS: { sector: string; items: { secid: string; name: stri
   },
   {
     sector: "Химия",
-    items: [{ secid: "PHOR", name: "ФосАгро" }],
+    items: [
+      { secid: "PHOR", name: "ФосАгро" },
+      { secid: "AKRN", name: "Акрон" },
+    ],
   },
   {
     sector: "Технологии",
