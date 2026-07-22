@@ -728,7 +728,11 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
     let pollingInterval: NodeJS.Timeout | null = null;
     let isSubscribed = false;
     let usePolling = false;
-    const POLLING_INTERVAL = 10000; // 10 секунд
+    // 60с, а не 10с: при недоступном Realtime это единственный источник
+    // трафика — polling гоняет select("*") по всему загруженному диапазону
+    // месяцев (может быть полгода-год), и на 10с интервале это съедает
+    // egress-квоту Supabase за считанные дни при нескольких открытых вкладках.
+    const POLLING_INTERVAL = 60000; // 60 секунд
     let isMounted = true; // Флаг для проверки, что компонент ещё смонтирован
     
     // Функция для обновления данных календаря после Realtime событий или polling
@@ -1079,7 +1083,10 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
     // если дежурства просто давно не менялись. Реальный сбой определяется статусом
     // подписки (CHANNEL_ERROR/TIMED_OUT/CLOSED) в колбэке .subscribe() выше.
     subscriptionCheckInterval = setInterval(() => {
-      if (channel && !isSubscribed) {
+      // Не дублируем reconnect, если он уже запланирован колбэком .subscribe()
+      // (CHANNEL_ERROR/TIMED_OUT/CLOSED) — иначе на каждый цикл ошибки летят
+      // два одновременных subscribeToRealtime() вместо одного.
+      if (channel && !isSubscribed && !reconnectTimeout) {
         console.warn("Realtime subscription appears to be inactive, reconnecting...");
         subscribeToRealtime();
       }

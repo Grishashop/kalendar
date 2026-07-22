@@ -101,7 +101,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     let isSubscribed = false;
     let usePolling = false;
     let isMounted = true; // Флаг для проверки, что компонент ещё смонтирован
-    const POLLING_INTERVAL = 10000; // 10 секунд
+    const POLLING_INTERVAL = 30000; // 30 секунд (было 10с — лишняя нагрузка на egress-квоту Supabase)
 
     // Функция для загрузки новых сообщений (для polling)
     const fetchNewMessages = async () => {
