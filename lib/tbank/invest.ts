@@ -115,6 +115,28 @@ export interface TBankDividend {
   recordDate: string; // "YYYY-MM-DD" — дата закрытия реестра
   value: number;
   currency: string;
+  // Периодичность выплаты по данным T-Bank ("Annual"/"SemiAnnual"/"Quarter"/…).
+  // У T-Bank НЕТ поля точного отчётного периода вида «1кв 2026» (как на
+  // smart-lab) — это была бы уже наша догадка, а не факт из API. Показываем
+  // честно то, что есть: periodLabel — переведённая regularity, либо null,
+  // если API её не отдал (напр. MOEX ISS фолбэк, где такого поля нет вовсе).
+  periodLabel: string | null;
+}
+
+// Переводит regularity T-Bank в читаемую подпись. Значения — по фактической
+// выборке всех живых ответов API по всем 185 дивидендным акциям TQBR:
+// "Annual", "Semi-Anl", "Quarter", "Irreg", "" (проверено вживую, не
+// документация). Неизвестное значение показываем как есть — лучше сырой
+// текст, чем скрыть данные.
+export function translateRegularity(regularity: string | undefined): string | null {
+  if (!regularity) return null;
+  const map: Record<string, string> = {
+    Annual: "Ежегодно",
+    "Semi-Anl": "Раз в полгода",
+    Quarter: "Ежеквартально",
+    Irreg: "Нерегулярно",
+  };
+  return map[regularity] ?? regularity;
 }
 
 function moneyValueToNumber(v: { units?: string; nano?: number } | undefined): number {
@@ -243,6 +265,9 @@ export const getDividendsByUid = unstable_cache(
           recordDate: recordDate.slice(0, 10),
           value: moneyValueToNumber(money),
           currency: (money?.currency ?? "rub").toUpperCase(),
+          periodLabel: translateRegularity(
+            typeof row["regularity"] === "string" ? row["regularity"] : undefined,
+          ),
         } satisfies TBankDividend;
       })
       .filter((d): d is TBankDividend => d !== null);

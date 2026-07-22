@@ -23,6 +23,10 @@ export interface EventDividend {
   currency: string;
   price: number | null; // текущая цена акции (MOEX ISS, TQBR, LAST)
   yieldPct: number | null; // дивидендная доходность = value / price * 100
+  // Периодичность выплаты (T-Bank regularity, переведено) — НЕ точный
+  // отчётный период вида «1кв 2026» (такого поля у T-Bank нет), а как часто
+  // компания платит. null — MOEX ISS фолбэк (там этого поля вообще нет).
+  period: string | null;
 }
 
 export interface EventExpiration {
@@ -110,6 +114,7 @@ async function loadDividendsForTicker(
         date: r.recordDate,
         value: r.value,
         currency: r.currency,
+        period: r.periodLabel,
       }));
     } catch {
       // Падаем на MOEX ISS ниже.
@@ -130,6 +135,7 @@ async function loadDividendsForTicker(
     date: String(r["registryclosedate"] ?? ""),
     value: typeof r["value"] === "number" ? r["value"] : 0,
     currency: String(r["currencyid"] ?? ""),
+    period: null,
   }));
 }
 

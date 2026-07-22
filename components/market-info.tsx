@@ -429,32 +429,40 @@ export function MarketInfo() {
                     <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
                       Дивиденды
                     </h3>
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                          <th className="pb-1 font-medium">Дата закрытия реестра</th>
-                          <th className="pb-1 font-medium">Дивиденд</th>
-                          <th className="pb-1 font-medium">Валюта</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {info.dividends.slice(0, 12).map((d, i) => {
-                          const isUpcoming = d.date >= new Date().toISOString().slice(0, 10);
-                          return (
-                            <tr
-                              key={`${d.date}-${i}`}
-                              className={`border-t border-slate-800/60 ${
-                                isUpcoming ? "text-emerald-400" : "text-slate-200"
-                              }`}
-                            >
-                              <td className="py-1">{fmtDate(d.date)}</td>
-                              <td className="py-1">{fmtNum(d.value, 4)}</td>
-                              <td className="py-1">{d.currency}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[440px] text-sm">
+                        <thead>
+                          <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                            <th className="whitespace-nowrap pb-1 font-medium">
+                              Дата закрытия реестра
+                            </th>
+                            <th className="whitespace-nowrap pb-1 font-medium">Период</th>
+                            <th className="whitespace-nowrap pb-1 font-medium">Дивиденд</th>
+                            <th className="whitespace-nowrap pb-1 font-medium">Валюта</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {info.dividends.slice(0, 12).map((d, i) => {
+                            const isUpcoming = d.date >= new Date().toISOString().slice(0, 10);
+                            return (
+                              <tr
+                                key={`${d.date}-${i}`}
+                                className={`border-t border-slate-800/60 ${
+                                  isUpcoming ? "text-emerald-400" : "text-slate-200"
+                                }`}
+                              >
+                                <td className="whitespace-nowrap py-1">{fmtDate(d.date)}</td>
+                                <td className="whitespace-nowrap py-1 text-slate-400">
+                                  {d.period ?? "—"}
+                                </td>
+                                <td className="whitespace-nowrap py-1">{fmtNum(d.value, 4)}</td>
+                                <td className="whitespace-nowrap py-1">{d.currency}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
 
@@ -500,40 +508,52 @@ export function MarketInfo() {
             {events && (
               <>
                 {events.dividends.upcoming.length > 0 ? (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                        <th className="pb-1 font-medium">Бумага</th>
-                        <th className="pb-1 font-medium">Дата закрытия реестра</th>
-                        <th className="pb-1 font-medium">Дивиденд</th>
-                        <th className="pb-1 text-right font-medium">Цена акции</th>
-                        <th className="pb-1 text-right font-medium">Див. Дох.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {events.dividends.upcoming.map((d, i) => (
-                        <tr
-                          key={`up-${d.secid}-${d.date}-${i}`}
-                          className="border-t border-slate-800/60"
-                        >
-                          <td className="py-1">
-                            <span className="font-medium text-slate-100">{d.secid}</span>{" "}
-                            <span className="text-slate-500">{d.name}</span>
-                          </td>
-                          <td className="py-1">{fmtDate(d.date)}</td>
-                          <td className="py-1">
-                            {fmtNum(d.value, 4)} {d.currency}
-                          </td>
-                          <td className="py-1 text-right">
-                            {d.price !== null ? fmtNum(d.price, 2) : "—"}
-                          </td>
-                          <td className="py-1 text-right text-emerald-400">
-                            {d.yieldPct !== null ? `${fmtNum(d.yieldPct, 2)}%` : "—"}
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[680px] text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                          <th className="whitespace-nowrap pb-1 font-medium">Бумага</th>
+                          <th className="whitespace-nowrap pb-1 font-medium">
+                            Дата закрытия реестра
+                          </th>
+                          <th className="whitespace-nowrap pb-1 font-medium">Дивиденд</th>
+                          <th className="whitespace-nowrap pb-1 font-medium">Период</th>
+                          <th className="whitespace-nowrap pb-1 text-right font-medium">
+                            Цена акции
+                          </th>
+                          <th className="whitespace-nowrap pb-1 text-right font-medium">
+                            Див. Дох.
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {events.dividends.upcoming.map((d, i) => (
+                          <tr
+                            key={`up-${d.secid}-${d.date}-${i}`}
+                            className="border-t border-slate-800/60"
+                          >
+                            <td className="whitespace-nowrap py-1">
+                              <span className="font-medium text-slate-100">{d.secid}</span>{" "}
+                              <span className="text-slate-500">{d.name}</span>
+                            </td>
+                            <td className="whitespace-nowrap py-1">{fmtDate(d.date)}</td>
+                            <td className="whitespace-nowrap py-1">
+                              {fmtNum(d.value, 4)} {d.currency}
+                            </td>
+                            <td className="whitespace-nowrap py-1 text-slate-400">
+                              {d.period ?? "—"}
+                            </td>
+                            <td className="whitespace-nowrap py-1 text-right">
+                              {d.price !== null ? fmtNum(d.price, 2) : "—"}
+                            </td>
+                            <td className="whitespace-nowrap py-1 text-right text-emerald-400">
+                              {d.yieldPct !== null ? `${fmtNum(d.yieldPct, 2)}%` : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   <div className="text-sm text-slate-500">Ближайших объявленных нет</div>
                 )}
@@ -542,40 +562,52 @@ export function MarketInfo() {
                   Недавние выплаты
                 </h2>
                 {events.dividends.recent.length > 0 ? (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                        <th className="pb-1 font-medium">Бумага</th>
-                        <th className="pb-1 font-medium">Дата закрытия реестра</th>
-                        <th className="pb-1 font-medium">Дивиденд</th>
-                        <th className="pb-1 text-right font-medium">Цена акции</th>
-                        <th className="pb-1 text-right font-medium">Див. Дох.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {events.dividends.recent.map((d, i) => (
-                        <tr
-                          key={`rec-${d.secid}-${d.date}-${i}`}
-                          className="border-t border-slate-800/60"
-                        >
-                          <td className="py-1">
-                            <span className="font-medium text-slate-100">{d.secid}</span>{" "}
-                            <span className="text-slate-500">{d.name}</span>
-                          </td>
-                          <td className="py-1">{fmtDate(d.date)}</td>
-                          <td className="py-1">
-                            {fmtNum(d.value, 4)} {d.currency}
-                          </td>
-                          <td className="py-1 text-right">
-                            {d.price !== null ? fmtNum(d.price, 2) : "—"}
-                          </td>
-                          <td className="py-1 text-right text-slate-400">
-                            {d.yieldPct !== null ? `${fmtNum(d.yieldPct, 2)}%` : "—"}
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[680px] text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                          <th className="whitespace-nowrap pb-1 font-medium">Бумага</th>
+                          <th className="whitespace-nowrap pb-1 font-medium">
+                            Дата закрытия реестра
+                          </th>
+                          <th className="whitespace-nowrap pb-1 font-medium">Дивиденд</th>
+                          <th className="whitespace-nowrap pb-1 font-medium">Период</th>
+                          <th className="whitespace-nowrap pb-1 text-right font-medium">
+                            Цена акции
+                          </th>
+                          <th className="whitespace-nowrap pb-1 text-right font-medium">
+                            Див. Дох.
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {events.dividends.recent.map((d, i) => (
+                          <tr
+                            key={`rec-${d.secid}-${d.date}-${i}`}
+                            className="border-t border-slate-800/60"
+                          >
+                            <td className="whitespace-nowrap py-1">
+                              <span className="font-medium text-slate-100">{d.secid}</span>{" "}
+                              <span className="text-slate-500">{d.name}</span>
+                            </td>
+                            <td className="whitespace-nowrap py-1">{fmtDate(d.date)}</td>
+                            <td className="whitespace-nowrap py-1">
+                              {fmtNum(d.value, 4)} {d.currency}
+                            </td>
+                            <td className="whitespace-nowrap py-1 text-slate-400">
+                              {d.period ?? "—"}
+                            </td>
+                            <td className="whitespace-nowrap py-1 text-right">
+                              {d.price !== null ? fmtNum(d.price, 2) : "—"}
+                            </td>
+                            <td className="whitespace-nowrap py-1 text-right text-slate-400">
+                              {d.yieldPct !== null ? `${fmtNum(d.yieldPct, 2)}%` : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
                   <div className="text-sm text-slate-500">Нет данных</div>
                 )}
@@ -590,26 +622,30 @@ export function MarketInfo() {
             {eventsLoading && <div className="text-sm text-slate-400">Загрузка…</div>}
             {events && (
               events.expirations.length > 0 ? (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                      <th className="pb-1 font-medium">Контракт</th>
-                      <th className="pb-1 font-medium">Код</th>
-                      <th className="pb-1 font-medium">Базовый актив</th>
-                      <th className="pb-1 font-medium">Последний торг. день</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {events.expirations.slice(0, 15).map((e) => (
-                      <tr key={e.secid} className="border-t border-slate-800/60">
-                        <td className="py-1 text-slate-100">{e.shortName}</td>
-                        <td className="py-1 text-slate-500">{e.secid}</td>
-                        <td className="py-1">{e.name}</td>
-                        <td className="py-1">{fmtDate(e.lastTradeDate)}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[520px] text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="whitespace-nowrap pb-1 font-medium">Контракт</th>
+                        <th className="whitespace-nowrap pb-1 font-medium">Код</th>
+                        <th className="whitespace-nowrap pb-1 font-medium">Базовый актив</th>
+                        <th className="whitespace-nowrap pb-1 font-medium">
+                          Последний торг. день
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {events.expirations.slice(0, 15).map((e) => (
+                        <tr key={e.secid} className="border-t border-slate-800/60">
+                          <td className="whitespace-nowrap py-1 text-slate-100">{e.shortName}</td>
+                          <td className="whitespace-nowrap py-1 text-slate-500">{e.secid}</td>
+                          <td className="whitespace-nowrap py-1">{e.name}</td>
+                          <td className="whitespace-nowrap py-1">{fmtDate(e.lastTradeDate)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
                 <div className="text-sm text-slate-500">Нет данных</div>
               )

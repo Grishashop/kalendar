@@ -33,6 +33,7 @@ export interface DividendRow {
   date: string;
   value: number;
   currency: string;
+  period: string | null;
 }
 
 export interface InfoResponse {
@@ -234,7 +235,7 @@ export async function GET(request: Request) {
       const { fromIso, toIso } = dividendDateRange(3650, 400);
       const rows = await getDividendsByUid(uid, fromIso, toIso);
       dividends = rows
-        .map((r) => ({ date: r.recordDate, value: r.value, currency: r.currency }))
+        .map((r) => ({ date: r.recordDate, value: r.value, currency: r.currency, period: r.periodLabel }))
         .filter((d) => d.date)
         .sort((a, b) => b.date.localeCompare(a.date));
     } catch {
@@ -253,6 +254,7 @@ export async function GET(request: Request) {
             date: String(r["registryclosedate"] ?? ""),
             value: num(r["value"]) ?? 0,
             currency: String(r["currencyid"] ?? ""),
+            period: null,
           }))
           .filter((d) => d.date)
           .sort((a, b) => b.date.localeCompare(a.date));
