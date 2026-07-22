@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchJson, lastOrNull, num, parseIssTable } from "@/lib/moex/iss";
+import { TICKER_TO_TBANK_UID, findTqbrInstrumentUid, getDividendsByUid } from "@/lib/tbank/invest";
 
 // Карточка-«паспорт» инструмента: спецификация контракта, ГО и комиссии
 // (FORTS-фьючерсы/опционы), купон/доходность/дюрация (облигации), живая
@@ -217,29 +218,46 @@ export async function GET(request: Request) {
     }
   }
 
-  // --- Дивиденды (только акции) ---
+  // --- Дивиденды (только акции) --- T-Bank Invest API даёт заметно более
+  // свежие данные, чем MOEX ISS (см. lib/tbank/invest.ts) — пробуем сначала
+  // его, при неудаче/отсутствии токена падаем на MOEX ISS для той же бумаги.
   let dividends: InfoResponse["dividends"] = null;
   if (group === "stock_shares") {
     try {
-      const divJson = await fetchJson(
-        "https://iss.moex.com/iss/securities/" +
-          encodeURIComponent(secid) +
-          "/dividends.json?iss.meta=off",
-        2,
-        9000,
-        21600,
+      const uid = TICKER_TO_TBANK_UID[secid] ?? (await findTqbrInstrumentUid(secid));
+      if (!uid) throw new Error("Тикер не найден в T-Bank Invest API");
+      const now = Date.now();
+      const rows = await getDividendsByUid(
+        uid,
+        new Date(now - 3650 * 86400000).toISOString(),
+        new Date(now + 400 * 86400000).toISOString(),
       );
-      const rows = parseIssTable(divJson, "dividends");
       dividends = rows
-        .map((r) => ({
-          date: String(r["registryclosedate"] ?? ""),
-          value: num(r["value"]) ?? 0,
-          currency: String(r["currencyid"] ?? ""),
-        }))
+        .map((r) => ({ date: r.recordDate, value: r.value, currency: r.currency }))
         .filter((d) => d.date)
         .sort((a, b) => b.date.localeCompare(a.date));
     } catch {
-      dividends = null;
+      try {
+        const divJson = await fetchJson(
+          "https://iss.moex.com/iss/securities/" +
+            encodeURIComponent(secid) +
+            "/dividends.json?iss.meta=off",
+          2,
+          9000,
+          21600,
+        );
+        const rows = parseIssTable(divJson, "dividends");
+        dividends = rows
+          .map((r) => ({
+            date: String(r["registryclosedate"] ?? ""),
+            value: num(r["value"]) ?? 0,
+            currency: String(r["currencyid"] ?? ""),
+          }))
+          .filter((d) => d.date)
+          .sort((a, b) => b.date.localeCompare(a.date));
+      } catch {
+        dividends = null;
+      }
     }
   }
 

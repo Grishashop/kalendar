@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchJson, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { SECTOR_GROUPS } from "@/lib/moex/sectors";
+import { TICKER_TO_TBANK_UID, getDividendsByUid } from "@/lib/tbank/invest";
 
 // Сводные события рынка для /market/info: ближайшие дивиденды по фиксированной
 // вселенной IMOEX-бумаг (SECTOR_GROUPS — bulk-эндпоинта дивидендов у ISS нет)
@@ -34,29 +35,62 @@ const DIVIDEND_TICKERS = SECTOR_GROUPS.flatMap((g) => g.items);
 const URL_FORTS_FRONTS =
   "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?iss.meta=off&iss.only=securities,marketdata&securities.columns=SECID,SHORTNAME,SECNAME,ASSETCODE,LASTTRADEDATE&marketdata.columns=SECID,VALTODAY,OPENPOSITION";
 
+// T-Bank Invest API (см. lib/tbank/invest.ts) отдаёт заметно более свежие
+// дивиденды, чем MOEX ISS — используется первым; MOEX ISS остаётся
+// фолбэком на конкретный тикер, если T-Bank не настроен (нет токена) или
+// запрос не удался.
+async function loadDividendsForTicker(
+  secid: string,
+  name: string,
+  fromIso: string,
+  toIso: string,
+): Promise<EventDividend[]> {
+  const uid = TICKER_TO_TBANK_UID[secid];
+  if (uid) {
+    try {
+      const rows = await getDividendsByUid(uid, fromIso, toIso);
+      return rows.map((r) => ({
+        secid,
+        name,
+        date: r.recordDate,
+        value: r.value,
+        currency: r.currency,
+      }));
+    } catch {
+      // Падаем на MOEX ISS ниже.
+    }
+  }
+
+  const json = await fetchJson(
+    "https://iss.moex.com/iss/securities/" +
+      encodeURIComponent(secid) +
+      "/dividends.json?iss.meta=off",
+    2,
+    9000,
+    21600,
+  );
+  return parseIssTable(json, "dividends").map((r) => ({
+    secid,
+    name,
+    date: String(r["registryclosedate"] ?? ""),
+    value: typeof r["value"] === "number" ? r["value"] : 0,
+    currency: String(r["currencyid"] ?? ""),
+  }));
+}
+
 async function loadDividends(): Promise<{
   upcoming: EventDividend[];
   recent: EventDividend[];
   failed: boolean;
 }> {
+  const now = Date.now();
+  const fromIso = new Date(now - 400 * 86400000).toISOString();
+  const toIso = new Date(now + 400 * 86400000).toISOString();
+
   const results = await Promise.allSettled(
-    DIVIDEND_TICKERS.map(async ({ secid, name }) => {
-      const json = await fetchJson(
-        "https://iss.moex.com/iss/securities/" +
-          encodeURIComponent(secid) +
-          "/dividends.json?iss.meta=off",
-        2,
-        9000,
-        21600,
-      );
-      return parseIssTable(json, "dividends").map((r) => ({
-        secid,
-        name,
-        date: String(r["registryclosedate"] ?? ""),
-        value: typeof r["value"] === "number" ? r["value"] : 0,
-        currency: String(r["currencyid"] ?? ""),
-      }));
-    }),
+    DIVIDEND_TICKERS.map(({ secid, name }) =>
+      loadDividendsForTicker(secid, name, fromIso, toIso),
+    ),
   );
 
   const failed = results.every((r) => r.status === "rejected");
