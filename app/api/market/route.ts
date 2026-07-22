@@ -38,6 +38,12 @@ export interface Quote {
   unit: string;
   contract?: string; // краткое имя фьючерсного контракта (для сырья — сама котировка это фьючерс)
   future?: FutureInfo | null; // ближайший фьючерс рядом со спот-значением (валюты)
+  // Официальный курс ЦБ РФ — заполнено только когда основное значение
+  // котировки биржевое (USD/EUR/CNY): биржевой курс динамичнее и стоит
+  // первым, курс ЦБ — вторичный ориентир рядом с ним. Если биржевого курса
+  // нет (площадка закрыта — TOM торгуется только 10:00-19:00 МСК), само
+  // основное значение уже и есть курс ЦБ, дублировать тут незачем.
+  cbr?: { value: number; changePct: number | null } | null;
   // Заполнено, только если конкретно ЭТА котировка реально не обновлялась
   // прямо сейчас (устарела относительно самого свежего инструмента в той
   // же группе) — время последнего реального обновления, "DD.MM HH:MM"
@@ -250,8 +256,8 @@ const URL_FORTS_ALL =
 
 const URL_CBR = "https://www.cbr-xml-daily.ru/daily_json.js";
 
-const URL_CNY =
-  "https://iss.moex.com/iss/engines/currency/markets/selt/boards/CETS/securities.json?securities=CNYRUB_TOM&iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,UPDATETIME";
+const URL_FX_TOM =
+  "https://iss.moex.com/iss/engines/currency/markets/selt/boards/CETS/securities.json?securities=USD000UTSTOM,EUR_RUB__TOM,CNYRUB_TOM&iss.meta=off&iss.only=marketdata&marketdata.columns=SECID,LAST,LASTTOPREVPRICE,UPDATETIME";
 
 function candlesUrl(board: string, secid: string, from: string): string {
   return (
@@ -786,59 +792,66 @@ const CURRENCY_FUTURES = [
   { asset: "CNY", key: "CNY", scale: 1 },
 ];
 
-function buildCurrencies(cbrJson: unknown, cnyJson: unknown): Quote[] {
+function buildCurrencies(cbrJson: unknown, fxTomJson: unknown): Quote[] {
   const out: Quote[] = [];
   const valute = (cbrJson as Record<string, unknown> | null)?.["Valute"] as
     | Record<string, { Value?: number; Previous?: number }>
     | undefined;
 
-  const cbrPair = (
+  const cbrRate = (
     code: string,
-    secid: string,
-    name: string,
-  ): Quote | null => {
+  ): { value: number; changePct: number | null } | null => {
     const v = valute?.[code];
     const value = num(v?.Value);
     const prev = num(v?.Previous);
     if (value === null) return null;
     const changePct =
       prev !== null && prev !== 0 ? ((value - prev) / prev) * 100 : null;
-    return {
-      secid,
-      name,
-      last: value,
-      changePct,
-      open: null,
-      high: null,
-      low: null,
-      unit: "₽",
-    };
+    return { value, changePct };
   };
 
-  const usd = cbrPair("USD", "USD_CBR", "Доллар США (ЦБ)");
-  if (usd) out.push(usd);
-  const eur = cbrPair("EUR", "EUR_CBR", "Евро (ЦБ)");
-  if (eur) out.push(eur);
+  const fxTomRows = parseIssTable(fxTomJson, "marketdata");
 
-  // Юань — биржевой CNYRUB_TOM.
-  const cnyRows = parseIssTable(cnyJson, "marketdata");
-  const cnyRow = cnyRows.find((r) => r["SECID"] === "CNYRUB_TOM");
-  const cnyLast = cnyRow ? lastOrNull(cnyRow["LAST"]) : null;
-  if (cnyLast !== null) {
-    out.push({
-      secid: "CNYRUB_TOM",
-      name: "Юань (биржа)",
-      last: cnyLast,
-      changePct: cnyRow ? num(cnyRow["LASTTOPREVPRICE"]) : null,
-      open: null,
-      high: null,
-      low: null,
-      unit: "₽",
-    });
-  } else {
-    // Фолбэк на официальный курс ЦБ, если биржевой недоступен.
-    const cnyCbr = cbrPair("CNY", "CNY_CBR", "Юань (ЦБ)");
-    if (cnyCbr) out.push(cnyCbr);
+  // Биржевой курс (TOM) обновляется в реальном времени в течение сессии —
+  // выводим его как основное значение карточки. Курс ЦБ (фиксируется раз
+  // в день) идёт вторичным ориентиром рядом (Quote.cbr) — см. отрисовку в
+  // MiniCard. TOM торгуется только 10:00-19:00 МСК (см. расписание
+  // валютного рынка): вне этого окна LAST пуст, и тогда основным значением
+  // становится сам курс ЦБ — дублировать его в cbr уже незачем.
+  const FX = [
+    { tomSecid: "USD000UTSTOM", cbrCode: "USD", cbrSecid: "USD_CBR", exchangeName: "Доллар США (биржа)", cbrName: "Доллар США (ЦБ)" },
+    { tomSecid: "EUR_RUB__TOM", cbrCode: "EUR", cbrSecid: "EUR_CBR", exchangeName: "Евро (биржа)", cbrName: "Евро (ЦБ)" },
+    { tomSecid: "CNYRUB_TOM", cbrCode: "CNY", cbrSecid: "CNY_CBR", exchangeName: "Юань (биржа)", cbrName: "Юань (ЦБ)" },
+  ];
+
+  for (const fx of FX) {
+    const row = fxTomRows.find((r) => r["SECID"] === fx.tomSecid);
+    const tomLast = row ? lastOrNull(row["LAST"]) : null;
+    const cbr = cbrRate(fx.cbrCode);
+    if (tomLast !== null) {
+      out.push({
+        secid: fx.tomSecid,
+        name: fx.exchangeName,
+        last: tomLast,
+        changePct: row ? num(row["LASTTOPREVPRICE"]) : null,
+        open: null,
+        high: null,
+        low: null,
+        unit: "₽",
+        cbr,
+      });
+    } else if (cbr) {
+      out.push({
+        secid: fx.cbrSecid,
+        name: fx.cbrName,
+        last: cbr.value,
+        changePct: cbr.changePct,
+        open: null,
+        high: null,
+        low: null,
+        unit: "₽",
+      });
+    }
   }
 
   return out;
@@ -897,7 +910,7 @@ export async function GET(request: Request) {
     stocksR,
     fortsR,
     cbrR,
-    cnyR,
+    fxTomR,
     sparkImoexR,
     sparkRtsiR,
     topStocksR,
@@ -908,7 +921,7 @@ export async function GET(request: Request) {
     fetchJson(URL_STOCKS),
     fetchJson(URL_FORTS),
     fetchJson(URL_CBR),
-    fetchJson(URL_CNY),
+    fetchJson(URL_FX_TOM),
     fetchJson(candlesUrl("SNDX", "IMOEX2", today)),
     fetchJson(candlesUrl("RTSI", "RTSI", today)),
     fullScope ? fetchJson(URL_STOCKS_ALL) : Promise.resolve(null),
@@ -923,7 +936,7 @@ export async function GET(request: Request) {
   const stocksJson = val(stocksR);
   const fortsJson = val(fortsR);
   const cbrJson = val(cbrR);
-  const cnyJson = val(cnyR);
+  const fxTomJson = val(fxTomR);
 
   // Если не удалось получить вообще ничего существенного — 502.
   if (
@@ -951,7 +964,7 @@ export async function GET(request: Request) {
   const currencyFutures = fortsJson
     ? buildFuturesMap(fortsJson, CURRENCY_FUTURES)
     : {};
-  const currencies: Quote[] = buildCurrencies(cbrJson, cnyJson).map((q) => {
+  const currencies: Quote[] = buildCurrencies(cbrJson, fxTomJson).map((q) => {
     const code = q.secid.startsWith("USD")
       ? "USD"
       : q.secid.startsWith("EUR")

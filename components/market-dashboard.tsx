@@ -426,19 +426,33 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
       <div className={compact ? "text-xs" : "mt-0.5 text-sm"}>
         <ChangeBadge pct={q.changePct} />
       </div>
-      {q.future && q.future.last !== null && (
+      {(q.future && q.future.last !== null) || q.cbr ? (
         <div
-          className={`mt-1 flex items-baseline justify-end gap-1.5 border-t border-slate-800 pt-1 ${compact ? "text-[10px]" : "text-[11px]"}`}
+          className={`mt-1 space-y-0.5 border-t border-slate-800 pt-1 ${compact ? "text-[10px]" : "text-[11px]"}`}
         >
-          <span className="text-slate-400">Фьюч.</span>
-          <span
-            className={`font-medium text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
-          >
-            {fmtNum(q.future.last)}{" "}
-            <ChangeBadge pct={q.future.changePct} />
-          </span>
+          {q.future && q.future.last !== null && (
+            <div className="flex items-baseline justify-end gap-1.5">
+              <span className="text-slate-400">Фьюч.</span>
+              <span
+                className={`font-medium text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
+              >
+                {fmtNum(q.future.last)}{" "}
+                <ChangeBadge pct={q.future.changePct} />
+              </span>
+            </div>
+          )}
+          {q.cbr && (
+            <div className="flex items-baseline justify-end gap-1.5">
+              <span className="text-slate-400">ЦБ</span>
+              <span
+                className={`font-medium text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
+              >
+                {fmtNum(q.cbr.value)} <ChangeBadge pct={q.cbr.changePct} />
+              </span>
+            </div>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
