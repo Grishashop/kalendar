@@ -497,48 +497,74 @@ export function MarketInfo() {
                 </button>
               </div>
             )}
-            {events &&
-              (() => {
-                const upcoming = events.dividends.upcoming;
-                const showRecent = upcoming.length === 0;
-                const rows = showRecent ? events.dividends.recent : upcoming;
-                return (
-                  <>
-                    {showRecent && (
-                      <p className="mb-2 text-xs text-slate-500">
-                        Ближайших объявленных нет — последние выплаты
-                      </p>
-                    )}
-                    {rows.length > 0 ? (
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                            <th className="pb-1 font-medium">Бумага</th>
-                            <th className="pb-1 font-medium">Дата закрытия реестра</th>
-                            <th className="pb-1 font-medium">Дивиденд</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((d, i) => (
-                            <tr key={`${d.secid}-${d.date}-${i}`} className="border-t border-slate-800/60">
-                              <td className="py-1">
-                                <span className="font-medium text-slate-100">{d.secid}</span>{" "}
-                                <span className="text-slate-500">{d.name}</span>
-                              </td>
-                              <td className="py-1">{fmtDate(d.date)}</td>
-                              <td className="py-1">
-                                {fmtNum(d.value, 4)} {d.currency}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <div className="text-sm text-slate-500">Нет данных</div>
-                    )}
-                  </>
-                );
-              })()}
+            {events && (
+              <>
+                {events.dividends.upcoming.length > 0 ? (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="pb-1 font-medium">Бумага</th>
+                        <th className="pb-1 font-medium">Дата закрытия реестра</th>
+                        <th className="pb-1 font-medium">Дивиденд</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {events.dividends.upcoming.map((d, i) => (
+                        <tr
+                          key={`up-${d.secid}-${d.date}-${i}`}
+                          className="border-t border-slate-800/60"
+                        >
+                          <td className="py-1">
+                            <span className="font-medium text-slate-100">{d.secid}</span>{" "}
+                            <span className="text-slate-500">{d.name}</span>
+                          </td>
+                          <td className="py-1">{fmtDate(d.date)}</td>
+                          <td className="py-1">
+                            {fmtNum(d.value, 4)} {d.currency}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="text-sm text-slate-500">Ближайших объявленных нет</div>
+                )}
+
+                <h2 className="mb-3 mt-5 text-sm font-semibold uppercase tracking-wide text-slate-400">
+                  Недавние выплаты
+                </h2>
+                {events.dividends.recent.length > 0 ? (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="pb-1 font-medium">Бумага</th>
+                        <th className="pb-1 font-medium">Дата закрытия реестра</th>
+                        <th className="pb-1 font-medium">Дивиденд</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {events.dividends.recent.map((d, i) => (
+                        <tr
+                          key={`rec-${d.secid}-${d.date}-${i}`}
+                          className="border-t border-slate-800/60"
+                        >
+                          <td className="py-1">
+                            <span className="font-medium text-slate-100">{d.secid}</span>{" "}
+                            <span className="text-slate-500">{d.name}</span>
+                          </td>
+                          <td className="py-1">{fmtDate(d.date)}</td>
+                          <td className="py-1">
+                            {fmtNum(d.value, 4)} {d.currency}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="text-sm text-slate-500">Нет данных</div>
+                )}
+              </>
+            )}
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
