@@ -148,6 +148,7 @@ export function MarketInfo() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const blurTimer = useRef<NodeJS.Timeout | null>(null);
+  const cardRef = useRef<HTMLElement | null>(null);
 
   // --- Карточка инструмента ---
   const [selectedSecid, setSelectedSecid] = useState<string | null>(null);
@@ -206,6 +207,23 @@ export function MarketInfo() {
       setSelectedSecid(r.secid);
       history.replaceState(null, "", `/market/info?secid=${encodeURIComponent(r.secid)}`);
       void loadInfo(r.secid);
+    },
+    [loadInfo],
+  );
+
+  // Открывает карточку инструмента (с полной историей дивидендов от
+  // T-Bank) по клику на бумагу в сводных таблицах «Ближайшие
+  // дивиденды»/«Недавние выплаты» — не только через поиск.
+  const showDividendHistory = useCallback(
+    (secid: string, name: string) => {
+      setSearchOpen(false);
+      setQuery(name);
+      setSelectedSecid(secid);
+      history.replaceState(null, "", `/market/info?secid=${encodeURIComponent(secid)}`);
+      void loadInfo(secid);
+      requestAnimationFrame(() => {
+        cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     },
     [loadInfo],
   );
@@ -354,7 +372,7 @@ export function MarketInfo() {
 
         {/* Карточка инструмента */}
         {(infoLoading || info || infoError) && (
-          <section className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-5">
+          <section ref={cardRef} className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-5">
             {infoLoading && !info && (
               <div className="text-sm text-slate-400">Загрузка…</div>
             )}
@@ -526,6 +544,9 @@ export function MarketInfo() {
                           <th className="whitespace-nowrap pb-1 text-right font-medium">
                             Див. Дох.
                           </th>
+                          <th className="whitespace-nowrap pb-1 font-medium">
+                            <span className="sr-only">История</span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -550,6 +571,16 @@ export function MarketInfo() {
                             </td>
                             <td className="whitespace-nowrap py-1 text-right text-emerald-400">
                               {d.yieldPct !== null ? `${fmtNum(d.yieldPct, 2)}%` : "—"}
+                            </td>
+                            <td className="whitespace-nowrap py-1 text-right">
+                              <button
+                                type="button"
+                                onClick={() => showDividendHistory(d.secid, d.name)}
+                                className="rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-300 transition hover:border-emerald-600 hover:text-emerald-400"
+                                title={`История дивидендов ${d.secid}`}
+                              >
+                                История
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -580,6 +611,9 @@ export function MarketInfo() {
                           <th className="whitespace-nowrap pb-1 text-right font-medium">
                             Див. Дох.
                           </th>
+                          <th className="whitespace-nowrap pb-1 font-medium">
+                            <span className="sr-only">История</span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -604,6 +638,16 @@ export function MarketInfo() {
                             </td>
                             <td className="whitespace-nowrap py-1 text-right text-slate-400">
                               {d.yieldPct !== null ? `${fmtNum(d.yieldPct, 2)}%` : "—"}
+                            </td>
+                            <td className="whitespace-nowrap py-1 text-right">
+                              <button
+                                type="button"
+                                onClick={() => showDividendHistory(d.secid, d.name)}
+                                className="rounded-md border border-slate-700 px-2 py-0.5 text-xs text-slate-300 transition hover:border-emerald-600 hover:text-emerald-400"
+                                title={`История дивидендов ${d.secid}`}
+                              >
+                                История
+                              </button>
                             </td>
                           </tr>
                         ))}
