@@ -279,32 +279,34 @@ export function MarketInfo() {
             placeholder="Тикер, ISIN или название — Enter для поиска…"
             className="w-full rounded-lg border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-600 focus:outline-none"
           />
-          {/* Фильтр по типу инструмента — виден всегда, не только при открытом
-              выпадающем списке результатов. */}
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {FILTERS.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setTypeFilter(f.key);
-                  if (blurTimer.current) {
-                    clearTimeout(blurTimer.current);
-                    blurTimer.current = null;
-                  }
-                  if (results.length > 0) setSearchOpen(true);
-                }}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                  typeFilter === f.key
-                    ? "bg-emerald-600 text-white"
-                    : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          {/* Фильтр по типу инструмента — появляется только после того, как
+              поиск уже вернул результаты, и сужает именно их. */}
+          {results.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setTypeFilter(f.key);
+                    if (blurTimer.current) {
+                      clearTimeout(blurTimer.current);
+                      blurTimer.current = null;
+                    }
+                    setSearchOpen(true);
+                  }}
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                    typeFilter === f.key
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
           {searchOpen && (
             <div className="absolute inset-x-0 top-full z-10 mt-1 max-h-96 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 shadow-xl">
               {groups.length === 0 && (
