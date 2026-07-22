@@ -45,7 +45,10 @@ async function tbankFetch(method: string, body: Record<string, unknown>): Promis
         next: { revalidate: 21600 },
         signal: AbortSignal.timeout(9000),
       });
-      if (!res.ok) throw new Error(`T-Bank HTTP ${res.status} для ${method}`);
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error(`T-Bank HTTP ${res.status} для ${method}: ${errBody.slice(0, 300)}`);
+      }
       return await res.json();
     } catch (e) {
       lastErr = e;
@@ -56,6 +59,10 @@ async function tbankFetch(method: string, body: Record<string, unknown>): Promis
       }
     }
   }
+  console.error(
+    `T-Bank ${method} не удался:`,
+    lastErr instanceof Error ? lastErr.message : lastErr,
+  );
   throw lastErr;
 }
 
