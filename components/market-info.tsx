@@ -561,7 +561,12 @@ export function MarketInfo() {
                             <td className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-800 bg-slate-900 py-1 pr-3 font-medium text-slate-100">
                               {d.secid}
                             </td>
-                            <td className="whitespace-nowrap py-1 text-slate-400">{d.name}</td>
+                            <td
+                              className="max-w-[220px] truncate py-1 text-slate-400"
+                              title={d.name}
+                            >
+                              {d.name}
+                            </td>
                             <td className="whitespace-nowrap py-1">{fmtDate(d.date)}</td>
                             <td className="whitespace-nowrap py-1">
                               {fmtNum(d.value, 4)} {d.currency}
@@ -631,7 +636,12 @@ export function MarketInfo() {
                             <td className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-800 bg-slate-900 py-1 pr-3 font-medium text-slate-100">
                               {d.secid}
                             </td>
-                            <td className="whitespace-nowrap py-1 text-slate-400">{d.name}</td>
+                            <td
+                              className="max-w-[220px] truncate py-1 text-slate-400"
+                              title={d.name}
+                            >
+                              {d.name}
+                            </td>
                             <td className="whitespace-nowrap py-1">{fmtDate(d.date)}</td>
                             <td className="whitespace-nowrap py-1">
                               {fmtNum(d.value, 4)} {d.currency}

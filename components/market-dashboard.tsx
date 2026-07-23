@@ -686,8 +686,11 @@ export function MarketDashboard() {
               void load(false, stockView === "chips" ? "compact" : "full")
             }
             disabled={loading}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
+            {loading && (
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            )}
             {loading ? `Обновление… ${elapsedSec}с` : "Обновить"}
           </button>
           <div className="flex gap-1 rounded-lg border border-slate-700 bg-slate-800 p-1">
@@ -727,15 +730,26 @@ export function MarketDashboard() {
             первой загрузке, просто в компактной строке под панелью кнопок
             вместо большого блока — данные под ним никуда не пропадают. */}
         {loading && data && (
-          <div
-            role="progressbar"
-            aria-label="Обновление котировок"
-            className="mb-4 h-1 w-full overflow-hidden rounded-full bg-slate-800 print:hidden"
-          >
+          <div className="mb-4 flex items-center gap-3 print:hidden">
+            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-slate-700 border-t-emerald-400" />
             <div
-              className="h-full rounded-full bg-emerald-500 transition-[width] duration-200 ease-linear"
-              style={{ width: `${progressPct}%` }}
-            />
+              role="progressbar"
+              aria-label="Обновление котировок"
+              aria-valuenow={progressPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800"
+            >
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-emerald-600 via-emerald-400 to-emerald-500 shadow-[0_0_8px_rgba(52,211,153,0.55)] transition-[width] duration-200 ease-linear"
+                style={{ width: `${progressPct}%` }}
+              >
+                <div className="h-full w-full animate-shimmer bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+              </div>
+            </div>
+            <span className="shrink-0 text-xs font-medium tabular-nums text-slate-400">
+              {elapsedSec}с
+            </span>
           </div>
         )}
 
@@ -784,20 +798,37 @@ export function MarketDashboard() {
         {/* Загрузка (первая или повторная после ошибки без старых данных) */}
         {loading && !data && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
-            <div className="text-lg font-medium text-slate-100">
-              Загружаем котировки… {elapsedSec}с
+            <div className="relative mx-auto flex h-16 w-16 items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-4 border-slate-800" />
+              <div className="absolute inset-0 animate-spin rounded-full border-4 border-transparent border-t-emerald-400 border-r-emerald-400/40" />
+              <span className="text-sm font-semibold tabular-nums text-emerald-400">
+                {elapsedSec}с
+              </span>
+            </div>
+            <div className="mt-5 text-lg font-medium text-slate-100">
+              Загружаем котировки
+              <span className="ml-0.5 inline-flex">
+                <span className="animate-bounce [animation-delay:-0.3s]">.</span>
+                <span className="animate-bounce [animation-delay:-0.15s]">.</span>
+                <span className="animate-bounce">.</span>
+              </span>
             </div>
             <div
               role="progressbar"
               aria-label="Загрузка котировок"
-              className="mx-auto mt-4 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-800"
+              aria-valuenow={progressPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              className="relative mx-auto mt-5 h-2 w-full max-w-xs overflow-hidden rounded-full bg-slate-800"
             >
               <div
-                className="h-full rounded-full bg-emerald-500 transition-[width] duration-200 ease-linear"
+                className="h-full rounded-full bg-gradient-to-r from-emerald-600 via-emerald-400 to-emerald-500 shadow-[0_0_10px_rgba(52,211,153,0.6)] transition-[width] duration-200 ease-linear"
                 style={{ width: `${progressPct}%` }}
-              />
+              >
+                <div className="h-full w-full animate-shimmer bg-gradient-to-r from-transparent via-white/50 to-transparent" />
+              </div>
             </div>
-            <p className="mt-3 text-sm text-slate-400">
+            <p className="mt-4 text-sm text-slate-400">
               MOEX и ALOR иногда отвечают медленно — обычно занимает 5–15 секунд.
             </p>
           </div>
