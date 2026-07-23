@@ -528,26 +528,32 @@ export function MarketInfo() {
             {events && (
               <>
                 {events.dividends.upcoming.length > 0 ? (
-                  <div className="overflow-x-auto">
+                  <div className="max-h-[420px] overflow-auto rounded-lg">
                     <table className="w-full min-w-[720px] text-sm">
                       <thead>
                         <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                          <th className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-800 bg-slate-900 pb-1 pr-3 font-medium">
+                          <th className="sticky left-0 top-0 z-30 whitespace-nowrap border-r border-b border-slate-800 bg-slate-900 pb-1 pr-3 pt-1 font-medium">
                             Тикер
                           </th>
-                          <th className="whitespace-nowrap pb-1 font-medium">Название</th>
-                          <th className="whitespace-nowrap pb-1 font-medium">
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                            Название
+                          </th>
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
                             Дата закрытия реестра
                           </th>
-                          <th className="whitespace-nowrap pb-1 font-medium">Дивиденд</th>
-                          <th className="whitespace-nowrap pb-1 font-medium">Период</th>
-                          <th className="whitespace-nowrap pb-1 text-right font-medium">
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                            Дивиденд
+                          </th>
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                            Период
+                          </th>
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 text-right font-medium">
                             Цена акции
                           </th>
-                          <th className="whitespace-nowrap pb-1 text-right font-medium">
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 text-right font-medium">
                             Див. Дох.
                           </th>
-                          <th className="whitespace-nowrap pb-1 font-medium">
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
                             <span className="sr-only">История</span>
                           </th>
                         </tr>
@@ -603,26 +609,32 @@ export function MarketInfo() {
                   Недавние выплаты
                 </h2>
                 {events.dividends.recent.length > 0 ? (
-                  <div className="overflow-x-auto">
+                  <div className="max-h-[420px] overflow-auto rounded-lg">
                     <table className="w-full min-w-[720px] text-sm">
                       <thead>
                         <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                          <th className="sticky left-0 z-10 whitespace-nowrap border-r border-slate-800 bg-slate-900 pb-1 pr-3 font-medium">
+                          <th className="sticky left-0 top-0 z-30 whitespace-nowrap border-r border-b border-slate-800 bg-slate-900 pb-1 pr-3 pt-1 font-medium">
                             Тикер
                           </th>
-                          <th className="whitespace-nowrap pb-1 font-medium">Название</th>
-                          <th className="whitespace-nowrap pb-1 font-medium">
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                            Название
+                          </th>
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
                             Дата закрытия реестра
                           </th>
-                          <th className="whitespace-nowrap pb-1 font-medium">Дивиденд</th>
-                          <th className="whitespace-nowrap pb-1 font-medium">Период</th>
-                          <th className="whitespace-nowrap pb-1 text-right font-medium">
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                            Дивиденд
+                          </th>
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                            Период
+                          </th>
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 text-right font-medium">
                             Цена акции
                           </th>
-                          <th className="whitespace-nowrap pb-1 text-right font-medium">
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 text-right font-medium">
                             Див. Дох.
                           </th>
-                          <th className="whitespace-nowrap pb-1 font-medium">
+                          <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
                             <span className="sr-only">История</span>
                           </th>
                         </tr>
@@ -684,14 +696,20 @@ export function MarketInfo() {
             {eventsLoading && <div className="text-sm text-slate-400">Загрузка…</div>}
             {events && (
               events.expirations.length > 0 ? (
-                <div className="overflow-x-auto">
+                <div className="max-h-[420px] overflow-auto rounded-lg">
                   <table className="w-full min-w-[520px] text-sm">
                     <thead>
                       <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                        <th className="whitespace-nowrap pb-1 font-medium">Контракт</th>
-                        <th className="whitespace-nowrap pb-1 font-medium">Код</th>
-                        <th className="whitespace-nowrap pb-1 font-medium">Базовый актив</th>
-                        <th className="whitespace-nowrap pb-1 font-medium">
+                        <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                          Контракт
+                        </th>
+                        <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                          Код
+                        </th>
+                        <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
+                          Базовый актив
+                        </th>
+                        <th className="sticky top-0 z-20 whitespace-nowrap border-b border-slate-800 bg-slate-900 pb-1 pt-1 font-medium">
                           Последний торг. день
                         </th>
                       </tr>
