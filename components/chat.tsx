@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { X, Send, Reply, Copy, Check, Search, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface ChatMessage {
   id: number;
@@ -60,6 +61,10 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
+  // Счётчик новых сообщений, пришедших пока пользователь проскроллил вверх — для пульсирующего индикатора на кнопке "вниз"
+  const [newMessagesWhileScrolledUp, setNewMessagesWhileScrolledUp] = useState(0);
+  // Ref дублирует isScrolledToBottom для чтения актуального значения внутри Realtime-подписки (эффект пересоздаётся не на каждый скролл)
+  const isScrolledToBottomRef = useRef(true);
 
   useEffect(() => {
     console.log("Chat component mounted/updated:", { userEmail, currentTraderId });
@@ -254,6 +259,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
               const formattedMessage = formatMessage(messageWithReply);
               
               // Добавляем сообщение в список с проверкой на дубликат
+              let wasAdded = false;
               setMessages((prev) => {
                 // Проверяем, нет ли уже такого сообщения по ID
                 const messageExists = prev.some((msg) => msg.id === formattedMessage.id);
@@ -262,6 +268,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
                   return prev;
                 }
                 console.log("Adding new message from Realtime:", formattedMessage.id, "author:", formattedMessage.author?.mail, "current list length:", prev.length);
+                wasAdded = true;
                 return [...prev, formattedMessage];
               });
               
@@ -270,6 +277,10 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
               const messageAuthorEmail = formattedMessage.author?.mail;
               if (messageAuthorEmail && messageAuthorEmail !== userEmail) {
                 showNotification(formattedMessage);
+                // Пользователь проскроллил вверх и не видит новое сообщение — включаем пульсирующий индикатор на кнопке "вниз"
+                if (wasAdded && isScrolledToBottomRef.current === false) {
+                  setNewMessagesWhileScrolledUp((prev) => prev + 1);
+                }
               }
               
               // Обновляем lastMessageId только если это действительно новое сообщение
@@ -459,7 +470,12 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
       const { scrollTop, scrollHeight, clientHeight } = container;
       const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
       setIsScrolledToBottom(isAtBottom);
+      isScrolledToBottomRef.current = isAtBottom;
       setShowScrollButton(!isAtBottom && messages.length > 0);
+      // Пользователь долистал до низа — новых непрочитанных больше нет, сбрасываем индикатор
+      if (isAtBottom) {
+        setNewMessagesWhileScrolledUp(0);
+      }
     };
 
     container.addEventListener("scroll", handleScroll);
@@ -498,7 +514,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
 
     if (error) {
       console.error("Error fetching messages:", error);
-      alert(`Ошибка при загрузке сообщений: ${error.message}`);
+      toast.error(`Ошибка при загрузке сообщений: ${error.message}`);
       setLoading(false);
       return;
     }
@@ -757,12 +773,12 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
 
   const handleSend = async () => {
     if (!newMessage.trim()) {
-      alert("Сообщение не может быть пустым");
+      toast.error("Сообщение не может быть пустым");
       return;
     }
 
     if (!currentTraderId) {
-      alert("Ошибка: не удалось определить ID трейдера");
+      toast.error("Ошибка: не удалось определить ID трейдера");
       console.error("currentTraderId is missing:", currentTraderId);
       return;
     }
@@ -802,7 +818,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         hint: error.hint,
         code: error.code
       });
-      alert(`Ошибка при отправке: ${error.message}\n\nПодробности: ${error.details || error.hint || "Нет дополнительной информации"}`);
+      toast.error(`Ошибка при отправке: ${error.message}\n\nПодробности: ${error.details || error.hint || "Нет дополнительной информации"}`);
     } else {
       console.log("Message sent successfully:", data);
       
@@ -908,13 +924,13 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     // Находим сообщение для проверки
     const messageToDelete = messages.find((msg) => msg.id === messageId);
     if (!messageToDelete) {
-      alert("Сообщение не найдено");
+      toast.error("Сообщение не найдено");
       return;
     }
 
     // Проверяем, что пользователь удаляет только свое сообщение
     if (messageToDelete.author_id !== currentTraderId) {
-      alert("Вы можете удалить только свои сообщения");
+      toast.error("Вы можете удалить только свои сообщения");
       console.error("Delete attempt failed:", {
         messageAuthorId: messageToDelete.author_id,
         currentTraderId: currentTraderId,
@@ -964,7 +980,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         code: error.code,
         fullError: JSON.stringify(error, null, 2),
       });
-      alert(`Ошибка при удалении: ${errorMessage}\n\nПодробности: ${errorDetails}`);
+      toast.error(`Ошибка при удалении: ${errorMessage}\n\nПодробности: ${errorDetails}`);
     } else {
       console.log("Message deleted successfully");
       setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
@@ -1175,7 +1191,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     } catch (err) {
       console.error("Failed to copy:", err);
       // Показываем сообщение пользователю, если копирование не удалось
-      alert("Не удалось скопировать сообщение в буфер обмена");
+      toast.error("Не удалось скопировать сообщение в буфер обмена");
     }
   };
 
@@ -1539,13 +1555,18 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         <Button
           variant="default"
           size="icon"
-          className="fixed bottom-24 right-6 rounded-full shadow-lg h-10 w-10 z-10 animate-in fade-in slide-in-from-bottom-2 duration-200"
+          className="relative fixed bottom-24 right-6 rounded-full shadow-lg h-10 w-10 z-10 animate-in fade-in slide-in-from-bottom-2 duration-200"
           onClick={() => {
             setIsScrolledToBottom(true);
+            isScrolledToBottomRef.current = true;
+            setNewMessagesWhileScrolledUp(0);
             scrollToBottom();
           }}
         >
           <ArrowDown className="h-4 w-4" />
+          {newMessagesWhileScrolledUp > 0 && (
+            <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
+          )}
         </Button>
       )}
 

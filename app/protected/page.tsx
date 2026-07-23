@@ -136,25 +136,22 @@ export default function ProtectedPage() {
               />
             </div>
 
-            {/* Центр - информация о пользователе */}
-            <div className="flex-1 flex flex-col items-center justify-center text-center">
-              <div className="flex flex-col items-center gap-1">
-                <p className="text-xs md:text-sm text-muted-foreground">
-                  {traderData?.name_short 
-                    ? `Авторизован как: ${traderData.name_short}` 
-                    : user?.email 
-                      ? `Авторизован как: ${user.email}` 
-                      : "Авторизованный пользователь"}
+            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
+              <p className="hidden text-xs text-muted-foreground md:block md:text-sm">
+                {traderData?.name_short 
+                  ? `Авторизован как: ${traderData.name_short}` 
+                  : user?.email 
+                    ? `Авторизован как: ${user.email}` 
+                    : "Авторизованный пользователь"}
+              </p>
+              {traderData?.admin && (
+                <p
+                  className="text-xs font-semibold text-red-500 transition-colors hover:text-red-600 cursor-pointer md:text-sm"
+                  onClick={() => setShowAdminPanel(true)}
+                >
+                  АДМИН
                 </p>
-                {traderData?.admin && (
-                  <p
-                    className="text-xs md:text-sm font-semibold text-red-500 cursor-pointer hover:text-red-600 transition-colors"
-                    onClick={() => setShowAdminPanel(true)}
-                  >
-                    АДМИН
-                  </p>
-                )}
-              </div>
+              )}
             </div>
 
             {/* Правая часть - переключатель темы и авторизация */}

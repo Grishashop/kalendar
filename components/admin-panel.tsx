@@ -11,6 +11,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
+import { toast } from "sonner";
 import { X, Edit, Trash2, Plus, Save, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -298,7 +300,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     if (id === undefined || id === null || id === "") {
       console.error("Delete error: ID is undefined, null, or empty");
       console.error("ID value:", id, "Type:", typeof id);
-      alert("Ошибка: ID записи не найден. Невозможно удалить запись без ID.");
+      toast.error("Ошибка: ID записи не найден. Невозможно удалить запись без ID.");
       return;
     }
 
@@ -337,12 +339,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         
         if (error2) {
           console.error("Delete error (by tip_dezursva_or_otdyh):", error2);
-          alert(`Ошибка при удалении: ${error2.message}`);
+          toast.error(`Ошибка при удалении: ${error2.message}`);
         } else {
           fetchData();
         }
       } else {
-        alert(`Ошибка при удалении: ${error.message}`);
+        toast.error(`Ошибка при удалении: ${error.message}`);
       }
     } else {
       fetchData();
@@ -392,7 +394,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     if (!data.id && table !== "typ_dezurstva") {
       console.error("ERROR: data.id is missing!");
       console.error("Full data object:", data);
-      alert("Ошибка: ID записи не найден. Невозможно обновить запись без ID.");
+      toast.error("Ошибка: ID записи не найден. Невозможно обновить запись без ID.");
       return;
     }
     
@@ -500,7 +502,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     }
 
     if (error) {
-      alert(`Ошибка при сохранении: ${error.message}`);
+      toast.error(`Ошибка при сохранении: ${error.message}`);
       console.error("Save error:", error);
       console.error("Data being saved:", cleanData);
       console.error("Has ID:", hasId);
@@ -711,7 +713,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                           // Для typ_dezurstva используем tip_dezursva_or_otdyh как идентификатор, если id отсутствует
                           const identifier = type.id || type.tip_dezursva_or_otdyh;
                           if (!identifier) {
-                            alert("Ошибка: Не удалось найти идентификатор записи для удаления.");
+                            toast.error("Ошибка: Не удалось найти идентификатор записи для удаления.");
                             return;
                           }
                           handleDelete(identifier, "typ_dezurstva");
@@ -1310,7 +1312,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                 // Проверяем, что данные не пустые
                 if (!data || Object.keys(data).length === 0) {
                   console.error("ERROR: Data is empty in onSave!");
-                  alert("Ошибка: данные для сохранения пусты. Проверьте консоль.");
+                  toast.error("Ошибка: данные для сохранения пусты. Проверьте консоль.");
                   return;
                 }
                 
@@ -1367,8 +1369,8 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 animate-in fade-in duration-200">
+      <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <div>
             <CardTitle>Панель администратора</CardTitle>
@@ -1461,6 +1463,8 @@ function EditForm({ item, table, onSave, onCancel }: EditFormProps) {
   });
   
   const [formData, setFormData] = useState(initialData);
+  // Индикатор сохранения — блокирует кнопку и показывает спиннер во время запроса к БД
+  const [isSaving, setIsSaving] = useState(false);
   
   // Логируем изменения formData
   useEffect(() => {
@@ -1473,7 +1477,7 @@ function EditForm({ item, table, onSave, onCancel }: EditFormProps) {
     setFormData(newFormData);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     console.log("=== handleSubmit START ===");
     console.log("item:", item);
     console.log("item.id:", item?.id, "Type:", typeof item?.id);
@@ -1568,11 +1572,17 @@ function EditForm({ item, table, onSave, onCancel }: EditFormProps) {
     // Проверяем, что данные не пустые
     if (Object.keys(dataToSave).length === 0) {
       console.error("ERROR: dataToSave is empty!");
-      alert("Ошибка: данные для сохранения пусты. Проверьте консоль.");
+      toast.error("Ошибка: данные для сохранения пусты. Проверьте консоль.");
       return;
     }
     
-    onSave(dataToSave as unknown as Trader | Duty | DutyType & { _originalTipDezursva?: string });
+    // Оборачиваем в isSaving, чтобы кнопка показывала спиннер, пока идёт запрос к БД
+    setIsSaving(true);
+    try {
+      await onSave(dataToSave as unknown as Trader | Duty | DutyType & { _originalTipDezursva?: string });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const getFieldLabel = (key: string): string => {
@@ -1658,9 +1668,9 @@ function EditForm({ item, table, onSave, onCancel }: EditFormProps) {
             </div>
           ))}
         <div className="flex gap-2 pt-4 border-t">
-          <Button onClick={handleSubmit} className="flex items-center gap-2">
-            <Save className="h-4 w-4" />
-            Сохранить
+          <Button onClick={handleSubmit} disabled={isSaving} className="flex items-center gap-2">
+            {isSaving ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+            {isSaving ? "Сохранение..." : "Сохранить"}
           </Button>
           <Button variant="outline" onClick={onCancel}>
             Отмена

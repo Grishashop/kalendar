@@ -134,7 +134,7 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here`}
             </div>
 
             {/* Центр - описание */}
-            <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <div className="hidden flex-1 flex-col items-center justify-center text-center md:flex">
               <p className="text-xs md:text-sm text-muted-foreground">
                 Пользователь не авторизован (только просмотровый режим)
               </p>

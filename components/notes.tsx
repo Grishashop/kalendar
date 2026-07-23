@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 import { 
   Plus, 
   Search, 
@@ -174,7 +176,7 @@ export function Notes({ currentTraderId }: NotesProps) {
 
     if (error) {
       console.error("Error creating folder:", error);
-      alert(`Ошибка при создании папки: ${error.message}`);
+      toast.error(`Ошибка при создании папки: ${error.message}`);
     } else {
       setFolders([...folders, data]);
       setNewFolderName("");
@@ -198,7 +200,7 @@ export function Notes({ currentTraderId }: NotesProps) {
 
     if (error) {
       console.error("Error updating folder:", error);
-      alert(`Ошибка при обновлении папки: ${error.message}`);
+      toast.error(`Ошибка при обновлении папки: ${error.message}`);
     } else {
       setFolders(folders.map(f => f.id === data.id ? data : f));
       setEditingFolder(null);
@@ -226,7 +228,7 @@ export function Notes({ currentTraderId }: NotesProps) {
 
     if (error) {
       console.error("Error deleting folder:", error);
-      alert(`Ошибка при удалении папки: ${error.message}`);
+      toast.error(`Ошибка при удалении папки: ${error.message}`);
     } else {
       setFolders(folders.filter(f => f.id !== folderId));
       if (selectedFolderId === folderId) {
@@ -258,7 +260,7 @@ export function Notes({ currentTraderId }: NotesProps) {
 
     if (error) {
       console.error("Error creating note:", error);
-      alert(`Ошибка при создании заметки: ${error.message}`);
+      toast.error(`Ошибка при создании заметки: ${error.message}`);
     } else {
       fetchNotes();
       setSelectedNote(data);
@@ -289,7 +291,7 @@ export function Notes({ currentTraderId }: NotesProps) {
 
     if (error) {
       console.error("Error updating note:", error);
-      alert(`Ошибка при обновлении заметки: ${error.message}`);
+      toast.error(`Ошибка при обновлении заметки: ${error.message}`);
     } else {
       fetchNotes();
       setSelectedNote({ ...data, folder_name: selectedNote.folder_name, folder_color: selectedNote.folder_color });
@@ -320,7 +322,7 @@ export function Notes({ currentTraderId }: NotesProps) {
 
         if (error) {
           console.error("Error deleting note:", error);
-          alert(`Ошибка при удалении заметки: ${error.message || error.details || JSON.stringify(error)}`);
+          toast.error(`Ошибка при удалении заметки: ${error.message || error.details || JSON.stringify(error)}`);
         } else {
           fetchNotes();
           if (selectedNote?.id === noteId) {
@@ -329,7 +331,7 @@ export function Notes({ currentTraderId }: NotesProps) {
           }
         }
       } else {
-        alert(`Ошибка при удалении заметки: ${rpcError.message || rpcError.details || JSON.stringify(rpcError)}`);
+        toast.error(`Ошибка при удалении заметки: ${rpcError.message || rpcError.details || JSON.stringify(rpcError)}`);
       }
     } else {
       // Функция сработала успешно
@@ -495,7 +497,7 @@ export function Notes({ currentTraderId }: NotesProps) {
       setTimeout(() => setCopiedNotification(false), 2000);
     } catch (error) {
       console.error("Ошибка при копировании:", error);
-      alert("Не удалось скопировать содержимое заметки");
+      toast.error("Не удалось скопировать содержимое заметки");
     }
   };
 
@@ -892,7 +894,7 @@ export function Notes({ currentTraderId }: NotesProps) {
           </div>
 
           {showFolderForm && (
-            <Card className="p-3 mb-2">
+            <Card className="p-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-200">
               <Input
                 placeholder="Название папки"
                 value={newFolderName}
@@ -1003,7 +1005,12 @@ export function Notes({ currentTraderId }: NotesProps) {
 
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="p-4 text-center text-muted-foreground">Загрузка...</div>
+            <div className="p-2 space-y-2">
+              <Skeleton className="h-16 w-full mb-2" />
+              <Skeleton className="h-16 w-full mb-2" />
+              <Skeleton className="h-16 w-full mb-2" />
+              <Skeleton className="h-16 w-full mb-2" />
+            </div>
           ) : filteredNotes.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground">
               {searchQuery ? "Заметки не найдены" : "Нет заметок"}

@@ -69,7 +69,7 @@ export function UpdatePasswordForm({
               {error && <p className="text-sm text-red-500">{error}</p>}
               <Button
                 type="submit"
-                className="w-full flex items-center justify-center gap-2"
+                className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white hover:bg-emerald-500"
                 disabled={isLoading}
               >
                 {isLoading && <Spinner className="h-4 w-4" />}

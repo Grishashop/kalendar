@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AddTraderForm } from "@/components/add-trader-form";
 import { TraderDetailsCard } from "@/components/trader-details-card";
 import { EditTraderForm } from "@/components/edit-trader-form";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface TraderListItem {
   id: string;
@@ -195,8 +196,25 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-muted-foreground">Загрузка...</p>
+      <div className="w-full max-w-4xl mx-auto p-4 md:p-6">
+        <div className="bg-card border rounded-lg shadow-sm p-4 md:p-6">
+          <Skeleton className="h-6 w-40 mb-4" />
+          <div className="space-y-2">
+            {/* Заглушки в форме будущих карточек трейдеров: фото + имя + email */}
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 p-3 rounded-lg border bg-muted/50"
+              >
+                <Skeleton className="h-12 w-12 rounded-full flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

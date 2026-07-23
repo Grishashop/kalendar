@@ -108,7 +108,7 @@ export function LoginForm({
                   <Label htmlFor="password">Пароль</Label>
                   <Link
                     href="/auth/forgot-password"
-                    className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
+                    className="ml-auto inline-block text-sm text-emerald-600 underline-offset-4 hover:text-emerald-500 hover:underline"
                   >
                     Забыли пароль?
                   </Link>
@@ -124,7 +124,7 @@ export function LoginForm({
               {error && <p className="text-sm text-red-500">{error}</p>}
               <Button
                 type="submit"
-                className="w-full flex items-center justify-center gap-2"
+                className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white hover:bg-emerald-500"
                 disabled={isLoading}
               >
                 {isLoading && <Spinner className="h-4 w-4" />}
@@ -135,7 +135,7 @@ export function LoginForm({
               Нет аккаунта?{" "}
               <Link
                 href="/auth/sign-up"
-                className="underline underline-offset-4"
+                className="text-emerald-600 underline underline-offset-4 hover:text-emerald-500"
               >
                 Зарегистрироваться
               </Link>

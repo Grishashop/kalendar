@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -54,6 +55,9 @@ export function DayDetailsCard({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Тик увеличивается при каждой новой ошибке, чтобы key менялся
+  // и CSS-анимация shake переигрывалась даже для одинакового текста
+  const [errorTick, setErrorTick] = useState(0);
   const [duties, setDuties] = useState<Duty[]>(traders);
 
   useEffect(() => {
@@ -65,6 +69,7 @@ export function DayDetailsCard({
     if (!isAdmin) {
       if (duty.traders !== currentTraderName) {
         setError("Вы можете удалить только свою запись");
+        setErrorTick((t) => t + 1);
         setTimeout(() => setError(null), 3000);
         return;
       }
@@ -73,6 +78,7 @@ export function DayDetailsCard({
     // Проверка 2: Если utverzdeno === true и пользователь не админ - нельзя удалять
     if (!isAdmin && duty.utverzdeno === true) {
       setError("Нельзя удалить утвержденную запись");
+      setErrorTick((t) => t + 1);
       setTimeout(() => setError(null), 3000);
       return;
     }
@@ -121,6 +127,7 @@ export function DayDetailsCard({
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Произошла ошибка при удалении";
       setError(errorMessage);
+      setErrorTick((t) => t + 1);
       setTimeout(() => setError(null), 3000);
     } finally {
       setDeletingId(null);
@@ -146,8 +153,16 @@ export function DayDetailsCard({
       return; // Не админ не может изменять
     }
 
+    const previousValue = duty.utverzdeno === true;
+
+    // Optimistic update: сразу отражаем изменение в UI, не дожидаясь ответа сети
+    setDuties((prevDuties) =>
+      prevDuties.map((d) =>
+        d.id === duty.id ? { ...d, utverzdeno: checked } : d
+      )
+    );
+
     setUpdatingId(duty.id);
-    setError(null);
 
     try {
       const supabase = createClient();
@@ -160,29 +175,27 @@ export function DayDetailsCard({
         throw updateError;
       }
 
-      // Обновляем локальное состояние
-      setDuties((prevDuties) =>
-        prevDuties.map((d) =>
-          d.id === duty.id ? { ...d, utverzdeno: checked } : d
-        )
-      );
-
       // Обновляем календарь
       if (onDelete) {
         onDelete();
       }
     } catch (err: unknown) {
+      // Запрос не прошёл — откатываем оптимистичное изменение обратно
+      setDuties((prevDuties) =>
+        prevDuties.map((d) =>
+          d.id === duty.id ? { ...d, utverzdeno: previousValue } : d
+        )
+      );
       const errorMessage = err instanceof Error ? err.message : "Произошла ошибка при обновлении";
-      setError(errorMessage);
-      setTimeout(() => setError(null), 3000);
+      toast.error(errorMessage);
     } finally {
       setUpdatingId(null);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 animate-in fade-in duration-200">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <div>
             <CardTitle>{formatDate(date)}</CardTitle>
@@ -209,7 +222,10 @@ export function DayDetailsCard({
           ) : (
             <div className="space-y-4">
               {error && (
-                <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                <div
+                  key={errorTick}
+                  className="p-3 rounded-md bg-destructive/10 border border-destructive/20 animate-shake"
+                >
                   <p className="text-sm text-destructive">{error}</p>
                 </div>
               )}
@@ -225,7 +241,12 @@ export function DayDetailsCard({
                         <span className="font-medium">Тип дежурства:</span> {duty.tip_dezursva_or_otdyh}
                       </div>
                     )}
-                    <div className="flex items-center space-x-2">
+                    <div
+                      className={cn(
+                        "flex items-center space-x-2",
+                        updatingId === duty.id && "opacity-60"
+                      )}
+                    >
                       <Checkbox
                         id={`utverzdeno-${duty.id}`}
                         checked={duty.utverzdeno === true}

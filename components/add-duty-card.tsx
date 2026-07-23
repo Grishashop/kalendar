@@ -52,6 +52,14 @@ export function AddDutyCard({
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState(0);
+
+  // Показывает ошибку и автоматически скрывает её через 3 секунды
+  const showError = (msg: string) => {
+    setError(msg);
+    setErrorKey((k) => k + 1);
+    setTimeout(() => setError(null), 3000);
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -118,13 +126,13 @@ export function AddDutyCard({
 
     // Проверка всех полей
     if (!selectedTraderId || !selectedTraderName) {
-      setError("Пожалуйста, выберите трейдера");
+      showError("Пожалуйста, выберите трейдера");
       setIsLoading(false);
       return;
     }
 
     if (!selectedDutyType) {
-      setError("Пожалуйста, выберите тип дежурства");
+      showError("Пожалуйста, выберите тип дежурства");
       setIsLoading(false);
       return;
     }
@@ -189,7 +197,7 @@ export function AddDutyCard({
         errorMessage = err.message;
       }
       
-      setError(errorMessage);
+      showError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -206,8 +214,8 @@ export function AddDutyCard({
 
   if (isLoadingData) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-        <Card className="w-full max-w-2xl">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 animate-in fade-in duration-200">
+        <Card className="w-full max-w-2xl animate-in fade-in zoom-in-95 duration-200">
           <CardContent className="p-6">
             <p className="text-center text-muted-foreground">Загрузка данных...</p>
           </CardContent>
@@ -217,8 +225,8 @@ export function AddDutyCard({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 animate-in fade-in duration-200">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
         <CardHeader>
           <div className="flex items-center space-x-2">
             <Checkbox id="date" checked={true} disabled />
@@ -365,7 +373,10 @@ export function AddDutyCard({
             </div>
 
             {error && (
-              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+              <div
+                key={errorKey}
+                className="p-3 rounded-md bg-destructive/10 border border-destructive/20 animate-shake"
+              >
                 <p className="text-sm text-destructive">{error}</p>
               </div>
             )}
@@ -377,7 +388,7 @@ export function AddDutyCard({
                 disabled={isLoading}
               >
                 {isLoading && <Spinner className="h-4 w-4" />}
-                {isLoading ? "Добавление..." : "Добавить в БД"}
+                {isLoading ? "Добавляем…" : "Добавить в БД"}
               </Button>
               <Button
                 type="button"

@@ -36,7 +36,7 @@ const ThemeSwitcher = () => {
               key="light"
               size={ICON_SIZE}
               className={
-                "text-muted-foreground transition-all duration-300 animate-in fade-in spin-in-90"
+                "text-muted-foreground transition-all duration-200 animate-in fade-in"
               }
             />
           ) : theme === "dark" ? (
@@ -44,7 +44,7 @@ const ThemeSwitcher = () => {
               key="dark"
               size={ICON_SIZE}
               className={
-                "text-muted-foreground transition-all duration-300 animate-in fade-in spin-in-90"
+                "text-muted-foreground transition-all duration-200 animate-in fade-in"
               }
             />
           ) : (
@@ -52,7 +52,7 @@ const ThemeSwitcher = () => {
               key="system"
               size={ICON_SIZE}
               className={
-                "text-muted-foreground transition-all duration-300 animate-in fade-in spin-in-90"
+                "text-muted-foreground transition-all duration-200 animate-in fade-in"
               }
             />
           )}

@@ -787,7 +787,23 @@ export function MarketDashboard() {
             авторизованный токен ALOR, обновление — только по явному клику. */}
         {!loading && !data && !error && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
-            <div className="text-lg font-medium text-slate-100">
+            <svg
+              viewBox="0 0 160 48"
+              className="mx-auto h-12 w-40 text-emerald-500/70"
+              fill="none"
+              aria-hidden
+            >
+              <path
+                d="M4 34 L34 22 L58 30 L86 10 L112 20 L156 6"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                pathLength={1}
+                className="[stroke-dasharray:1] [stroke-dashoffset:1] animate-draw-line"
+              />
+            </svg>
+            <div className="mt-4 text-lg font-medium text-slate-100">
               Котировки ещё не загружены
             </div>
             <p className="mt-2 text-sm text-slate-400">

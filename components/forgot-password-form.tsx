@@ -85,7 +85,7 @@ export function ForgotPasswordForm({
                 {error && <p className="text-sm text-red-500">{error}</p>}
                 <Button
                   type="submit"
-                  className="w-full flex items-center justify-center gap-2"
+                  className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white hover:bg-emerald-500"
                   disabled={isLoading}
                 >
                   {isLoading && <Spinner className="h-4 w-4" />}
@@ -96,7 +96,7 @@ export function ForgotPasswordForm({
                 Уже есть аккаунт?{" "}
                 <Link
                   href="/auth/login"
-                  className="underline underline-offset-4"
+                  className="text-emerald-600 underline underline-offset-4 hover:text-emerald-500"
                 >
                   Войти
                 </Link>

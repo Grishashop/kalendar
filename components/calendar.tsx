@@ -1517,7 +1517,7 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
                     }
                   }}
                   className={cn(
-                    "aspect-square text-left transition-colors",
+                    "aspect-square text-left transition-[color,transform] transform-gpu active:scale-95",
                     "flex flex-col items-start justify-start",
                     sizeClasses.cell,
                     todayClass

@@ -62,9 +62,25 @@ export default {
           "0%": { transform: "translateX(-100%)" },
           "100%": { transform: "translateX(100%)" },
         },
+        // Лёгкое горизонтальное дрожание для сообщений об ошибке —
+        // периферийным зрением заметно почти всегда, в отличие от
+        // статичного красного текста, который легко пропустить.
+        shake: {
+          "0%, 100%": { transform: "translateX(0)" },
+          "20%, 60%": { transform: "translateX(-4px)" },
+          "40%, 80%": { transform: "translateX(4px)" },
+        },
+        // "Рисование" SVG-линии через stroke-dashoffset — сигнализирует
+        // "здесь появится живой график", а не просто пустое место.
+        "draw-line": {
+          from: { "stroke-dashoffset": "1" },
+          to: { "stroke-dashoffset": "0" },
+        },
       },
       animation: {
         shimmer: "shimmer 1.6s ease-in-out infinite",
+        shake: "shake 0.35s ease-in-out",
+        "draw-line": "draw-line 1.4s ease-out forwards",
       },
     },
   },
