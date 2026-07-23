@@ -807,7 +807,11 @@ export function MarketDashboard() {
               Котировки ещё не загружены
             </div>
             <p className="mt-2 text-sm text-slate-400">
-              Нажмите «Обновить», чтобы запросить актуальные данные.
+              Нажмите «
+              <span className="text-base font-semibold text-emerald-400">
+                Обновить
+              </span>
+              », чтобы запросить актуальные данные.
             </p>
           </div>
         )}
