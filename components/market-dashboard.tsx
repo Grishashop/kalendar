@@ -681,6 +681,12 @@ export function MarketDashboard() {
         {/* Панель управления — вне зоны скриншота. Без гейта по data: иначе
             кнопку "Обновить" при первом заходе просто негде нажать. */}
         <div className="mb-4 flex flex-wrap items-center gap-2 print:hidden">
+          <Link
+            href="/"
+            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700"
+          >
+            ← Календарь
+          </Link>
           <button
             onClick={() =>
               void load(false, stockView === "chips" ? "compact" : "full")

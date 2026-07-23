@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { AuthButtonClient } from "@/components/auth-button-client";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Calendar } from "@/components/calendar";
@@ -156,6 +158,9 @@ export default function ProtectedPage() {
 
             {/* Правая часть - переключатель темы и авторизация */}
             <div className="flex items-center gap-3">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/market">Маркет</Link>
+              </Button>
               <ThemeSwitcher />
               <AuthButtonClient />
             </div>
