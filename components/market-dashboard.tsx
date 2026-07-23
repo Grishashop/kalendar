@@ -808,9 +808,15 @@ export function MarketDashboard() {
             </div>
             <p className="mt-2 text-sm text-slate-400">
               Нажмите «
-              <span className="text-base font-semibold text-emerald-400">
+              <button
+                type="button"
+                onClick={() =>
+                  void load(false, stockView === "chips" ? "compact" : "full")
+                }
+                className="text-base font-semibold text-emerald-400 underline decoration-emerald-400/40 underline-offset-2 transition hover:text-emerald-300 hover:decoration-emerald-300"
+              >
                 Обновить
-              </span>
+              </button>
               », чтобы запросить актуальные данные.
             </p>
           </div>
