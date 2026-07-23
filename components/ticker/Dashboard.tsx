@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import type { WatchItem } from "@/lib/ticker/instruments";
 import { watchKey } from "@/lib/ticker/instruments";
 import { useWatchlists } from "@/hooks/ticker/useWatchlists";
@@ -182,6 +183,15 @@ export function Dashboard() {
 
   return (
     <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6 md:h-screen md:overflow-hidden">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h1 className="text-lg font-semibold text-zinc-100">Монитор котировок</h1>
+        <Link
+          href="/market"
+          className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-700"
+        >
+          ← Обзор рынка
+        </Link>
+      </div>
       {/* min-h-0 обязателен для flex-1 внутри md:h-screen-предка: flex-basis
           у flex-1 — 0%, и явную height на этом же элементе flexbox просто
           игнорирует (main-axis считается через flex-grow, а не height) —
