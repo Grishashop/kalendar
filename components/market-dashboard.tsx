@@ -724,13 +724,13 @@ export function MarketDashboard() {
           </div>
           <Link
             href="/ticker"
-            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700"
+            className="ml-auto rounded-lg border border-transparent px-4 py-2 text-sm font-medium text-slate-400 transition hover:border-slate-700 hover:bg-slate-800 hover:text-slate-200"
           >
             Тикеры
           </Link>
           <Link
             href="/market/info"
-            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700"
+            className="rounded-lg border border-transparent px-4 py-2 text-sm font-medium text-slate-400 transition hover:border-slate-700 hover:bg-slate-800 hover:text-slate-200"
           >
             Справочник
           </Link>
