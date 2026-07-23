@@ -61,6 +61,7 @@ export async function updateSession(request: NextRequest) {
     // а не на форму входа. Логин доступен по кнопке "Войти".
     const url = request.nextUrl.clone();
     url.pathname = "/";
+    url.searchParams.set("loginRequired", request.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
 

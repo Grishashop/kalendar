@@ -8,6 +8,13 @@ import { Calendar } from "@/components/calendar";
 import { DayDetailsCard } from "@/components/day-details-card";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
+// Человекочитаемые названия разделов, закрытых входом — для тоста при редиректе
+// из middleware (см. lib/supabase/middleware.ts: url.searchParams("loginRequired")).
+const PROTECTED_ROUTE_LABELS: Record<string, string> = {
+  "/ticker": "Тикеры",
+};
 
 interface Trader {
   id: string;
@@ -43,6 +50,26 @@ export default function Home() {
     };
     checkAuth();
   }, [router]);
+
+  useEffect(() => {
+    const loginRequired = new URLSearchParams(window.location.search).get(
+      "loginRequired",
+    );
+    if (!loginRequired) return;
+    window.history.replaceState(null, "", "/");
+    const label = PROTECTED_ROUTE_LABELS[loginRequired];
+    // setTimeout(0): эффект этой страницы коммитится раньше эффекта <Toaster/>
+    // (сайблинг после {children} в app/layout.tsx, эффекты идут по порядку JSX)
+    // — без сдвига в следующий тик toast() вызывается до монтирования Toaster
+    // и тост нигде не рендерится (тихо теряется, без ошибки).
+    setTimeout(() => {
+      toast.error(
+        label
+          ? `Войдите, чтобы открыть «${label}»`
+          : "Войдите, чтобы открыть этот раздел",
+      );
+    }, 0);
+  }, []);
 
   const handleDayClick = (date: Date, traders: Trader[]) => {
     setSelectedDate(date);
