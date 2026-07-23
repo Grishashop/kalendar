@@ -55,6 +55,9 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/temp-calendar") &&
     !request.nextUrl.pathname.startsWith("/api/temp-calendar") &&
     !request.nextUrl.pathname.startsWith("/market") &&
+    // Статическая презентация "Маркета" для коллег — публичная ссылка,
+    // без входа (public/presentation/index.html).
+    !request.nextUrl.pathname.startsWith("/presentation") &&
     !request.nextUrl.pathname.startsWith("/api/market")
   ) {
     // no user — отправляем на главную (просмотровый режим),
