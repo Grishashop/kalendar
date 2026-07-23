@@ -66,3 +66,47 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Раздел /ticker («Монитор котировок», перенесено из отдельного проекта StockTicker):
+   короткие анимации обратной связи — pop при копировании тикера/ISIN, лёгкое появление
+   дропдауна поиска и карточки инструмента при смене. */
+@keyframes ticker-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.animate-pop {
+  animation: ticker-pop 200ms ease-out;
+}
+
+@keyframes ticker-fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-slide-in {
+  animation: ticker-fade-slide-in 120ms ease-out;
+}
+
+@keyframes ticker-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade-in {
+  animation: ticker-fade-in 150ms ease-out;
+}

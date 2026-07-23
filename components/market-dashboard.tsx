@@ -717,6 +717,12 @@ export function MarketDashboard() {
             ))}
           </div>
           <Link
+            href="/ticker"
+            className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700"
+          >
+            Тикеры
+          </Link>
+          <Link
             href="/market/info"
             className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-700"
           >
