@@ -926,7 +926,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     };
     
     return (
-      <div className="space-y-4">
+      <div className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-1">
         <h3 className="text-lg font-semibold">Настройки календаря</h3>
         
         {/* Вкладки настроек - мобильно-адаптивные */}
@@ -1274,7 +1274,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   // Рендер содержимого вкладки "Таблицы"
   const renderTablesTab = () => {
     return (
-      <div className="flex gap-4 h-full">
+      <div className="flex flex-1 min-h-0 gap-4">
         {/* Вертикальные вкладки для таблиц */}
         <div className="w-48 flex-shrink-0 border-r pr-4">
           <div className="space-y-2">
@@ -1406,7 +1406,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           </div>
         </div>
 
-        <CardContent className="flex-1 overflow-hidden pt-4">
+        <CardContent className="flex flex-1 min-h-0 flex-col overflow-hidden pt-4">
           {mainTab === "settings" && renderSettingsTab()}
           {mainTab === "tables" && renderTablesTab()}
           {mainTab === "about" && renderAboutTab()}
