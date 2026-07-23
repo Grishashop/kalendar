@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
@@ -370,7 +371,12 @@ export function AddDutyCard({
             )}
 
             <div className="flex gap-3 pt-4">
-              <Button type="submit" className="flex-1" disabled={isLoading}>
+              <Button
+                type="submit"
+                className="flex-1 flex items-center justify-center gap-2"
+                disabled={isLoading}
+              >
+                {isLoading && <Spinner className="h-4 w-4" />}
                 {isLoading ? "Добавление..." : "Добавить в БД"}
               </Button>
               <Button

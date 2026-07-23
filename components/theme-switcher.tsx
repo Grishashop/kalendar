@@ -35,19 +35,25 @@ const ThemeSwitcher = () => {
             <Sun
               key="light"
               size={ICON_SIZE}
-              className={"text-muted-foreground"}
+              className={
+                "text-muted-foreground transition-all duration-300 animate-in fade-in spin-in-90"
+              }
             />
           ) : theme === "dark" ? (
             <Moon
               key="dark"
               size={ICON_SIZE}
-              className={"text-muted-foreground"}
+              className={
+                "text-muted-foreground transition-all duration-300 animate-in fade-in spin-in-90"
+              }
             />
           ) : (
             <Laptop
               key="system"
               size={ICON_SIZE}
-              className={"text-muted-foreground"}
+              className={
+                "text-muted-foreground transition-all duration-300 animate-in fade-in spin-in-90"
+              }
             />
           )}
         </Button>

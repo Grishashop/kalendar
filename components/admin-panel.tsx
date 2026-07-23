@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { X, Edit, Trash2, Plus, Save, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -516,8 +517,14 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const renderTable = () => {
     if (loading) {
       return (
-        <div className="flex items-center justify-center py-12">
-          <p className="text-muted-foreground">Загрузка...</p>
+        <div className="space-y-3 p-6">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4">
+              <Skeleton className="h-4 w-1/4" />
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-4 w-16" />
+            </div>
+          ))}
         </div>
       );
     }
@@ -727,8 +734,10 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const renderAboutTab = () => {
     if (loadingVersion) {
       return (
-        <div className="flex items-center justify-center py-12">
-          <p className="text-muted-foreground">Загрузка информации о версии...</p>
+        <div className="space-y-2 p-6">
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="h-4 w-64" />
+          <Skeleton className="h-4 w-32" />
         </div>
       );
     }

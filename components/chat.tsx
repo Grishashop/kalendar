@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { X, Send, Reply, Copy, Check, Search, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -1297,8 +1298,22 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
 
       <div className="flex-1 overflow-y-auto mb-3 space-y-1" ref={messagesContainerRef}>
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <p className="text-muted-foreground">Загрузка сообщений...</p>
+          <div className="space-y-2 py-2">
+            <div className="flex justify-start">
+              <Skeleton className="h-10 w-2/3 rounded-2xl" />
+            </div>
+            <div className="flex justify-end">
+              <Skeleton className="h-10 w-1/2 rounded-2xl" />
+            </div>
+            <div className="flex justify-start">
+              <Skeleton className="h-10 w-3/5 rounded-2xl" />
+            </div>
+            <div className="flex justify-end">
+              <Skeleton className="h-10 w-2/5 rounded-2xl" />
+            </div>
+            <div className="flex justify-start">
+              <Skeleton className="h-10 w-1/2 rounded-2xl" />
+            </div>
           </div>
         ) : filteredMessages.length === 0 ? (
           <div className="flex items-center justify-center py-8">
@@ -1524,7 +1539,7 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         <Button
           variant="default"
           size="icon"
-          className="fixed bottom-24 right-6 rounded-full shadow-lg h-10 w-10 z-10"
+          className="fixed bottom-24 right-6 rounded-full shadow-lg h-10 w-10 z-10 animate-in fade-in slide-in-from-bottom-2 duration-200"
           onClick={() => {
             setIsScrolledToBottom(true);
             scrollToBottom();

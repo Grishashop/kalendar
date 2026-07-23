@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { formatDateMoscow, parseDateMoscow, getMoscowDateComponents, createMoscowDate } from "@/lib/date-utils";
@@ -1427,8 +1428,10 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
             Переменные окружения Supabase не настроены
           </div>
         ) : loading ? (
-          <div className="text-center py-8 text-muted-foreground">
-            Загрузка...
+          <div className={cn("grid", gridCols, sizeClasses.gap)}>
+            {Array.from({ length: 35 }).map((_, idx) => (
+              <Skeleton key={idx} className="aspect-square rounded-md" />
+            ))}
           </div>
         ) : (
           <div className={cn("grid", gridCols, sizeClasses.gap)}>

@@ -73,7 +73,11 @@ export function TraderDetailsCard({
               <img
                 src={trader.photo}
                 alt={trader.name_short || "Трейдер"}
-                className="w-32 h-32 rounded-full object-cover border-4 border-border"
+                className="w-32 h-32 rounded-full object-cover border-4 border-border opacity-0 transition-opacity duration-300"
+                onLoad={(e) => {
+                  e.currentTarget.classList.remove("opacity-0");
+                  e.currentTarget.classList.add("opacity-100");
+                }}
                 onError={(e) => {
                   e.currentTarget.style.display = "none";
                 }}
@@ -90,7 +94,7 @@ export function TraderDetailsCard({
             >
               <span>{trader.name || "Не указано"}</span>
               {copiedField === "name" ? (
-                <Check className="h-4 w-4 text-green-500" />
+                <Check className="h-4 w-4 text-green-500 animate-in zoom-in-50 fade-in-0 duration-200" />
               ) : trader.name ? (
                 <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                   Клик для копирования
@@ -108,7 +112,7 @@ export function TraderDetailsCard({
             >
               <span>{trader.name_short || "Не указано"}</span>
               {copiedField === "name_short" ? (
-                <Check className="h-4 w-4 text-green-500" />
+                <Check className="h-4 w-4 text-green-500 animate-in zoom-in-50 fade-in-0 duration-200" />
               ) : trader.name_short ? (
                 <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                   Клик для копирования
@@ -127,7 +131,7 @@ export function TraderDetailsCard({
               >
                 <span>{trader.photo}</span>
                 {copiedField === "photo" ? (
-                  <Check className="h-4 w-4 text-green-500 ml-2 flex-shrink-0" />
+                  <Check className="h-4 w-4 text-green-500 animate-in zoom-in-50 fade-in-0 duration-200 ml-2 flex-shrink-0" />
                 ) : (
                   <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0">
                     Клик для копирования
@@ -148,7 +152,7 @@ export function TraderDetailsCard({
             >
               <span>{trader.mail || "Не указано"}</span>
               {copiedField === "mail" ? (
-                <Check className="h-4 w-4 text-green-500" />
+                <Check className="h-4 w-4 text-green-500 animate-in zoom-in-50 fade-in-0 duration-200" />
               ) : trader.mail ? (
                 <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                   Клик для копирования
@@ -166,7 +170,7 @@ export function TraderDetailsCard({
             >
               <span>{trader.phone || "Не указано"}</span>
               {copiedField === "phone" ? (
-                <Check className="h-4 w-4 text-green-500" />
+                <Check className="h-4 w-4 text-green-500 animate-in zoom-in-50 fade-in-0 duration-200" />
               ) : trader.phone ? (
                 <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                   Клик для копирования

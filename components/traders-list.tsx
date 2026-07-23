@@ -336,7 +336,11 @@ export function TradersList({ isAdmin = false }: TradersListProps) {
                       <img
                         src={trader.photo}
                         alt={trader.name_short || "Трейдер"}
-                        className="w-12 h-12 rounded-full object-cover border-2 border-border"
+                        className="w-12 h-12 rounded-full object-cover border-2 border-border opacity-0 transition-opacity duration-300"
+                        onLoad={(e) => {
+                          e.currentTarget.classList.remove("opacity-0");
+                          e.currentTarget.classList.add("opacity-100");
+                        }}
                         onError={(e) => {
                           // Если изображение не загрузилось, скрываем его
                           e.currentTarget.style.display = "none";

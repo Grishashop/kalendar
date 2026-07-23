@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Spinner } from "@/components/ui/spinner";
 
 interface TraderDetails {
   id: string | number;
@@ -321,7 +322,12 @@ export function EditTraderForm({
             )}
 
             <div className="flex gap-3 pt-2">
-              <Button type="submit" className="flex-1" disabled={isLoading}>
+              <Button
+                type="submit"
+                className="flex-1 flex items-center justify-center gap-2"
+                disabled={isLoading}
+              >
+                {isLoading && <Spinner className="h-4 w-4" />}
                 {isLoading ? "Сохранение..." : "Сохранить"}
               </Button>
               <Button
@@ -339,10 +345,11 @@ export function EditTraderForm({
               <Button
                 type="button"
                 variant="destructive"
-                className="w-full mt-2"
+                className="w-full mt-2 flex items-center justify-center gap-2"
                 onClick={handleDelete}
                 disabled={isLoading}
               >
+                {isLoading && <Spinner className="h-4 w-4" />}
                 Удалить
               </Button>
             )}

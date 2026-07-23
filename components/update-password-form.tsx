@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Card,
   CardContent,
@@ -66,7 +67,12 @@ export function UpdatePasswordForm({
                 />
               </div>
               {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button
+                type="submit"
+                className="w-full flex items-center justify-center gap-2"
+                disabled={isLoading}
+              >
+                {isLoading && <Spinner className="h-4 w-4" />}
                 {isLoading ? "Сохранение..." : "Сохранить новый пароль"}
               </Button>
             </div>
