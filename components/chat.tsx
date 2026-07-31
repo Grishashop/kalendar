@@ -65,6 +65,10 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
   const [newMessagesWhileScrolledUp, setNewMessagesWhileScrolledUp] = useState(0);
   // Ref дублирует isScrolledToBottom для чтения актуального значения внутри Realtime-подписки (эффект пересоздаётся не на каждый скролл)
   const isScrolledToBottomRef = useRef(true);
+  // Максимальный уже загруженный id сообщения — polling-фолбэк запрашивает
+  // только то, чего ещё нет (вместо повторного скачивания последних 50
+  // сообщений с JOIN на трейдеров при каждом тике, см. fetchNewMessages).
+  const maxMessageIdRef = useRef(0);
 
   useEffect(() => {
     console.log("Chat component mounted/updated:", { userEmail, currentTraderId });
@@ -72,6 +76,12 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
       console.warn("currentTraderId is not set! Delete functionality may not work.");
     }
   }, [userEmail, currentTraderId]);
+
+  useEffect(() => {
+    for (const m of messages) {
+      if (m.id > maxMessageIdRef.current) maxMessageIdRef.current = m.id;
+    }
+  }, [messages]);
 
   // Загрузка данных и настройка уведомлений
   useEffect(() => {
@@ -114,15 +124,25 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
       if (!isMounted) return; // Проверяем, что компонент ещё смонтирован
       
       try {
-        const { data: newMessages, error } = await supabase
+        // Инкрементально: только сообщения новее уже загруженных — раньше
+        // каждый тик перекачивал последние 50 сообщений целиком (с JOIN на
+        // traders) независимо от того, появилось ли что-то новое, что при
+        // недоступном Realtime (частый CHANNEL_ERROR, см. fix_chat_realtime.sql)
+        // и нескольких открытых вкладках съедало egress-квоту Supabase.
+        let query = supabase
           .from("chat_messages")
           .select(`
             *,
             author:traders!chat_messages_author_id_fkey(id, name_short, mail, photo),
             mentioned_trader:traders!chat_messages_mentioned_trader_id_fkey(name_short)
           `)
-          .order("id", { ascending: false })
+          .order("id", { ascending: true })
           .limit(50);
+        query = maxMessageIdRef.current > 0
+          ? query.gt("id", maxMessageIdRef.current)
+          : query;
+
+        const { data: newMessages, error } = await query;
 
         if (error || !isMounted) {
           if (error) console.error("Error fetching messages in polling:", error);
