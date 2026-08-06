@@ -11,6 +11,7 @@ import { TemplateEditor } from "@/components/karman/TemplateEditor";
 import { normalizeNumeric } from "@/lib/karman/expression";
 import { parseClipboard, parseDate } from "@/lib/karman/parse";
 import { generate, type GenerateResult } from "@/lib/karman/generate";
+import { computeStats } from "@/lib/karman/stats";
 import {
   BUILTIN_TEMPLATES,
   isTemplateModified,
@@ -24,6 +25,22 @@ const DELIMITER_LABELS: Record<string, string> = {
   "\t": "табуляция",
   ";": "точка с запятой",
 };
+
+const ORDER = ["заявка", "заявки", "заявок"] as const;
+const CONTRACT = ["контракт", "контракта", "контрактов"] as const;
+const INSTRUMENT = ["инструмент", "инструмента", "инструментов"] as const;
+const ACCOUNT = ["счёт", "счёта", "счетов"] as const;
+const ROW = ["строка", "строки", "строк"] as const;
+
+/** Русское согласование: 1 заявка, 2 заявки, 5 заявок, 11 заявок, 21 заявка. */
+function plural(count: number, forms: readonly [string, string, string]): string {
+  const tail = Math.abs(count) % 100;
+  if (tail >= 11 && tail <= 14) return forms[2];
+  const last = tail % 10;
+  if (last === 1) return forms[0];
+  if (last >= 2 && last <= 4) return forms[1];
+  return forms[2];
+}
 
 export function Generator() {
   const [templates, setTemplates] = useState<Template[]>(() =>
@@ -83,6 +100,12 @@ export function Generator() {
     for (const issue of parsed?.cellErrors ?? []) keys.add(`${issue.row}|${issue.column}`);
     return keys;
   }, [parsed]);
+
+  // Порядок строк на сводку не влияет, поэтому она не зависит от сортировки.
+  const stats = useMemo(
+    () => (parsed && parsed.errors.length === 0 ? computeStats(template, parsed.rows, enabled) : null),
+    [parsed, template, enabled],
+  );
 
   const blocked = !parsed || parsed.errors.length > 0 || parsed.rows.length === 0;
   const selectedCount = enabled.filter(Boolean).length;
@@ -297,6 +320,82 @@ export function Generator() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {stats && stats.orders > 0 && (
+            <div className="space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <div>
+                  <div className="text-2xl font-semibold tabular-nums">{stats.orders}</div>
+                  <div className="text-xs text-zinc-500">{plural(stats.orders, ORDER)}</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-semibold tabular-nums">{stats.contracts}</div>
+                  <div className="text-xs text-zinc-500">{plural(stats.contracts, CONTRACT)}</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-semibold tabular-nums">{stats.instruments}</div>
+                  <div className="text-xs text-zinc-500">{plural(stats.instruments, INSTRUMENT)}</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-semibold tabular-nums">{stats.accounts}</div>
+                  <div className="text-xs text-zinc-500">{plural(stats.accounts, ACCOUNT)}</div>
+                </div>
+              </div>
+
+              <dl className="space-y-1 text-sm">
+                {stats.byDirection.map((total) => (
+                  <div key={total.direction} className="flex gap-2">
+                    <dt className="w-28 shrink-0 text-zinc-500">{total.direction}</dt>
+                    <dd className="tabular-nums">
+                      {total.orders} {plural(total.orders, ORDER)} · {total.contracts}{" "}
+                      {plural(total.contracts, CONTRACT)}
+                    </dd>
+                  </div>
+                ))}
+                {stats.largest && (
+                  <div className="flex gap-2">
+                    <dt className="w-28 shrink-0 text-zinc-500">Крупнейшая</dt>
+                    <dd>
+                      {stats.largest.account} · {stats.largest.instrument} ·{" "}
+                      {stats.largest.direction.toLowerCase()} {stats.largest.contracts}
+                    </dd>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <dt className="w-28 shrink-0 text-zinc-500">Больше всего</dt>
+                  <dd>
+                    {stats.top
+                      .map((item) => `${item.instrument} — ${item.contracts}`)
+                      .join(", ")}
+                  </dd>
+                </div>
+                {stats.skipped > 0 && (
+                  <div className="flex gap-2">
+                    <dt className="w-28 shrink-0 text-zinc-500">Не войдёт</dt>
+                    <dd className="tabular-nums">
+                      {stats.skipped} {plural(stats.skipped, ROW)}
+                      {stats.failed > 0 && `, из них с ошибкой вычисления: ${stats.failed}`}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+
+              {stats.crossed.length > 0 && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                  Заявки в обе стороны по одному инструменту: {stats.crossed.join(", ")}. В стакане
+                  они встретятся друг с другом — пачка торгует сама с собой и дважды платит спред.
+                </p>
+              )}
+
+              {stats.duplicates.length > 0 && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                  Пара «счёт + инструмент» встречается больше одного раза:{" "}
+                  {stats.duplicates.join("; ")}. В таблице позиций такого быть не должно — проверьте
+                  выборку.
+                </p>
+              )}
             </div>
           )}
 

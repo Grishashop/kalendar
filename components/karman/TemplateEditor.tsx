@@ -7,13 +7,25 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { compileExpression, compileLine, ExpressionError } from "@/lib/karman/expression";
-import { ROW_NUMBER_COLUMN, type ColumnType, type Template } from "@/lib/karman/template";
+import {
+  ROW_NUMBER_COLUMN,
+  type ColumnType,
+  type Template,
+  type TemplateStats,
+} from "@/lib/karman/template";
 
 const TYPE_LABELS: Record<ColumnType, string> = {
   number: "Число",
   text: "Текст",
   date: "Дата",
 };
+
+const STATS_FIELDS = [
+  ["quantity", "Количество в заявке"],
+  ["direction", "Направление"],
+  ["instrument", "Инструмент"],
+  ["account", "Торговый счёт"],
+] as const satisfies readonly (readonly [keyof TemplateStats, string])[];
 
 function problem(source: string, compile: (src: string) => unknown): string | null {
   if (!source.trim()) return null;
@@ -150,10 +162,84 @@ export function TemplateEditor({
       </section>
 
       <section className="space-y-2">
+        <h3 className="text-sm font-medium">Именованные выражения</h3>
+        <p className="text-xs text-zinc-500">
+          Считаются один раз на строку, ссылка на них выглядит как ссылка на колонку:{" "}
+          <code>[Количество]</code>. Нужны, чтобы одно правило не копировалось между текстом
+          транзакции, отсевом и сводкой.
+        </p>
+        {Object.entries(template.values).map(([name, source], index) => (
+          <div key={index} className="flex gap-2">
+            <Input
+              value={name}
+              aria-label="Имя выражения"
+              onChange={(e) =>
+                onChange({
+                  ...template,
+                  values: Object.fromEntries(
+                    Object.entries(template.values).map(([key, value], i) =>
+                      i === index ? [e.target.value, value] : [key, value],
+                    ),
+                  ),
+                })
+              }
+              className="h-8 w-48 shrink-0"
+            />
+            <Input
+              value={source}
+              aria-label={`Выражение ${name}`}
+              onChange={(e) =>
+                onChange({ ...template, values: { ...template.values, [name]: e.target.value } })
+              }
+              className="h-8 font-mono text-xs"
+              spellCheck={false}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label={`Удалить выражение ${name}`}
+              onClick={() =>
+                onChange({
+                  ...template,
+                  values: Object.fromEntries(
+                    Object.entries(template.values).filter(([key]) => key !== name),
+                  ),
+                })
+              }
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        ))}
+        {Object.entries(template.values).map(([name, source]) => {
+          const error = problem(source, compileExpression);
+          return error ? (
+            <p key={name} className="text-xs text-red-600 dark:text-red-400">
+              {name}: {error}
+            </p>
+          ) : null;
+        })}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            onChange({ ...template, values: { ...template.values, "Новое выражение": "0" } })
+          }
+        >
+          <Plus /> Добавить выражение
+        </Button>
+      </section>
+
+      <section className="space-y-2">
         <h3 className="text-sm font-medium">Текст транзакции</h3>
         <p className="text-xs text-zinc-500">
           Выражения — в <code>${"{...}"}</code>, колонки — в квадратных скобках. Доступны:{" "}
-          {[ROW_NUMBER_COLUMN, ...template.columns.map((c) => c.name)]
+          {[
+            ROW_NUMBER_COLUMN,
+            ...template.columns.map((c) => c.name),
+            ...Object.keys(template.values),
+          ]
             .map((name) => `[${name}]`)
             .join(", ")}
           . Функции: IF, ABS, ROUND, INT, MAX, MIN, TEXT, TODAY. Разделитель аргументов — «;».
@@ -179,6 +265,27 @@ export function TemplateEditor({
           spellCheck={false}
         />
         {skipError && <p className="text-xs text-red-600 dark:text-red-400">{skipError}</p>}
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="text-sm font-medium">Сводка перед отправкой</h3>
+        <p className="text-xs text-zinc-500">
+          Имя колонки или именованного выражения, откуда сводка берёт каждую величину.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {STATS_FIELDS.map(([key, label]) => (
+            <label key={key} className="block text-xs text-zinc-500">
+              {label}
+              <Input
+                value={template.stats[key]}
+                onChange={(e) =>
+                  onChange({ ...template, stats: { ...template.stats, [key]: e.target.value } })
+                }
+                className="mt-1 text-sm"
+              />
+            </label>
+          ))}
+        </div>
       </section>
 
       <section className="space-y-2">

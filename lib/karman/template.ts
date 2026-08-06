@@ -23,11 +23,27 @@ export interface TemplateColumn {
   sortByAbs?: boolean;
 }
 
+/** Роли для сводки: имена колонок или именованных выражений. */
+export interface TemplateStats {
+  /** Количество в заявке — число. */
+  quantity: string;
+  /** Направление заявки — текст. */
+  direction: string;
+  instrument: string;
+  account: string;
+}
+
 export interface Template {
   id: string;
   name: string;
   description: string;
   columns: TemplateColumn[];
+  /**
+   * Именованные выражения. Ссылка на них в тексте транзакции и в сводке
+   * выглядит как ссылка на колонку: `[Количество]`. Нужны, чтобы правило
+   * считалось в одном месте, а не копировалось по формулам.
+   */
+  values: Record<string, string>;
   /** Выражение; истина — строка не попадает в вывод. */
   skipWhen: string;
   /** Колонки, значения которых в корректной выборке одинаковы во всех строках. */
@@ -36,6 +52,7 @@ export interface Template {
   warnEmpty: string[];
   /** Текст транзакции с выражениями `${...}`. */
   line: string;
+  stats: TemplateStats;
 }
 
 /** Псевдоколонка: сквозной номер строки в выводе, считается после отсева. */
@@ -46,12 +63,12 @@ const FORTS_LINE = [
   "CLASSCODE=SPBFUT",
   "ACTION=Ввод заявки",
   "Торговый счет=${[Торговый счет]}",
-  'К/П=${IF([Тек. чист. поз.]>0;"Продажа";"Покупка")}',
+  "К/П=${[Направление]}",
   "Тип=Рыночная",
   "Класс=SPBFUT",
   "Инструмент=${[Код инструмента]}",
   "Цена=0",
-  "Количество=${ABS([Тек. чист. поз.])}",
+  "Количество=${[Количество]}",
   "Условие исполнения=Поставить в очередь",
   "Комментарий=/&!62",
   "Переносить заявку=Нет",
@@ -77,10 +94,21 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
       { name: "Акт. покупка", type: "number", nullable: true },
       { name: "Акт. продажа", type: "number", nullable: true },
     ],
-    skipWhen: "ABS([Тек. чист. поз.]) = 0",
+    values: {
+      // Закрытие позиции: длинную продаём, короткую откупаем.
+      Направление: 'IF([Тек. чист. поз.]>0;"Продажа";"Покупка")',
+      Количество: "ABS([Тек. чист. поз.])",
+    },
+    skipWhen: "[Количество] = 0",
     warnUniform: ["Дата погашения"],
     warnEmpty: ["Акт. покупка", "Акт. продажа"],
     line: FORTS_LINE,
+    stats: {
+      quantity: "Количество",
+      direction: "Направление",
+      instrument: "Код инструмента",
+      account: "Торговый счет",
+    },
   },
 ];
 
@@ -114,6 +142,8 @@ export function saveTemplate(template: Template): void {
   const overrides = readOverrides();
   overrides[template.id] = {
     columns: template.columns,
+    values: template.values,
+    stats: template.stats,
     skipWhen: template.skipWhen,
     warnUniform: template.warnUniform,
     warnEmpty: template.warnEmpty,
