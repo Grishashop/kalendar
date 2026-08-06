@@ -161,6 +161,9 @@ export default function ProtectedPage() {
               <Button asChild variant="outline" size="sm">
                 <Link href="/market">Маркет</Link>
               </Button>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/karman">Карман транзакций</Link>
+              </Button>
               <ThemeSwitcher />
               <AuthButtonClient />
             </div>

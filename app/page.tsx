@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { AuthButtonClient } from "@/components/auth-button-client";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Calendar } from "@/components/calendar";
@@ -169,6 +171,9 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here`}
 
             {/* Правая часть - переключатель темы и авторизация */}
             <div className="flex items-center gap-3">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/karman">Карман транзакций</Link>
+              </Button>
               <ThemeSwitcher />
               <AuthButtonClient />
             </div>

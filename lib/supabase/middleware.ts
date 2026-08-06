@@ -55,6 +55,9 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/temp-calendar") &&
     !request.nextUrl.pathname.startsWith("/api/temp-calendar") &&
     !request.nextUrl.pathname.startsWith("/market") &&
+    // Генератор заявок для кармана транзакций QUIK — публичный: страница ничего
+    // не хранит и не читает, вся работа идёт в браузере над вставленным текстом.
+    !request.nextUrl.pathname.startsWith("/karman") &&
     // Статическая презентация "Маркета" для коллег — публичная ссылка,
     // без входа (public/presentation/index.html).
     !request.nextUrl.pathname.startsWith("/presentation") &&
