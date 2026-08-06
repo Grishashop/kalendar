@@ -65,7 +65,11 @@ export function Generator() {
       const a = parsed.rows[left][sort.index].trim();
       const b = parsed.rows[right][sort.index].trim();
       if (column.type === "number") {
-        return sign * ((a ? Number(normalizeNumeric(a)) : 0) - (b ? Number(normalizeNumeric(b)) : 0));
+        const toNumber = (raw: string) => {
+          const value = raw ? Number(normalizeNumeric(raw)) : 0;
+          return column.sortByAbs ? Math.abs(value) : value;
+        };
+        return sign * (toNumber(a) - toNumber(b));
       }
       if (column.type === "date") {
         return sign * ((parseDate(a)?.getTime() ?? 0) - (parseDate(b)?.getTime() ?? 0));
@@ -249,6 +253,10 @@ export function Generator() {
                             <span className="text-zinc-400">
                               {active === "asc" ? "▲" : active === "desc" ? "▼" : "↕"}
                             </span>
+                            {/* Иначе порядок −1, 1, −2, 2 выглядит поломанным. */}
+                            {active && column.sortByAbs && (
+                              <span className="font-normal text-zinc-400">по модулю</span>
+                            )}
                           </button>
                         </th>
                       );

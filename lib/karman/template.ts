@@ -16,6 +16,11 @@ export interface TemplateColumn {
   pattern?: string;
   /** Пустая ячейка допустима; в числовом контексте даёт 0. */
   nullable?: boolean;
+  /**
+   * Числовая колонка сортируется по модулю. Для знаковой позиции знак — это
+   * направление сделки, а не величина: оператора интересует размер закрытия.
+   */
+  sortByAbs?: boolean;
 }
 
 export interface Template {
@@ -66,7 +71,7 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
       // Счёт длиннее тикера — регулярки разводят две текстовые колонки,
       // которые типовая проверка сама по себе не различает.
       { name: "Торговый счет", type: "text", pattern: "^[A-Za-z0-9_-]{6,16}$" },
-      { name: "Тек. чист. поз.", type: "number" },
+      { name: "Тек. чист. поз.", type: "number", sortByAbs: true },
       { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9]{3,5}$" },
       { name: "Дата погашения", type: "date" },
       { name: "Акт. покупка", type: "number", nullable: true },

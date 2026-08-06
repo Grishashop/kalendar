@@ -64,6 +64,7 @@ export function TemplateEditor({
                 <th className="w-28 pb-1">Тип</th>
                 <th className="pb-1">Регулярка</th>
                 <th className="w-24 pb-1">Пустая</th>
+                <th className="w-28 pb-1">Сорт. по модулю</th>
                 <th className="w-8 pb-1" />
               </tr>
             </thead>
@@ -103,6 +104,14 @@ export function TemplateEditor({
                     <Checkbox
                       checked={column.nullable === true}
                       onCheckedChange={(value) => patchColumn(index, { nullable: value === true })}
+                    />
+                  </td>
+                  <td className="py-1">
+                    <Checkbox
+                      checked={column.sortByAbs === true}
+                      disabled={column.type !== "number"}
+                      aria-label={`Сортировать «${column.name}» по модулю`}
+                      onCheckedChange={(value) => patchColumn(index, { sortByAbs: value === true })}
                     />
                   </td>
                   <td className="py-1">
