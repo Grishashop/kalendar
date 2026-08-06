@@ -27,11 +27,9 @@ export interface Stats {
   byDirection: DirectionTotal[];
   instruments: number;
   accounts: number;
-  /** Инструменты с наибольшим числом контрактов. */
-  top: { instrument: string; contracts: number }[];
+  /** Все инструменты пачки по алфавиту — чтобы глазами проверить состав серии. */
+  byInstrument: { instrument: string; orders: number; contracts: number }[];
   largest: { account: string; instrument: string; direction: string; contracts: number } | null;
-  /** Инструменты, по которым в пачке есть заявки в обе стороны. */
-  crossed: string[];
   /** Пары «счёт + инструмент», встречающиеся больше одного раза. */
   duplicates: string[];
   /** Строк отброшено: снята галочка, правило отсева или ошибка вычисления. */
@@ -49,8 +47,7 @@ export function computeStats(
   if (compiled.error) return null;
 
   const byDirection = new Map<string, DirectionTotal>();
-  const byInstrument = new Map<string, number>();
-  const directionsPerInstrument = new Map<string, Set<string>>();
+  const byInstrument = new Map<string, { instrument: string; orders: number; contracts: number }>();
   const pairs = new Map<string, number>();
   const accounts = new Set<string>();
 
@@ -88,10 +85,10 @@ export function computeStats(
       total.contracts += quantity;
       byDirection.set(direction, total);
 
-      byInstrument.set(instrument, (byInstrument.get(instrument) ?? 0) + quantity);
-      const directions = directionsPerInstrument.get(instrument) ?? new Set<string>();
-      directions.add(direction);
-      directionsPerInstrument.set(instrument, directions);
+      const perInstrument = byInstrument.get(instrument) ?? { instrument, orders: 0, contracts: 0 };
+      perInstrument.orders += 1;
+      perInstrument.contracts += quantity;
+      byInstrument.set(instrument, perInstrument);
 
       const pair = `${account} · ${instrument}`;
       pairs.set(pair, (pairs.get(pair) ?? 0) + 1);
@@ -111,15 +108,10 @@ export function computeStats(
     byDirection: [...byDirection.values()].sort((a, b) => b.contracts - a.contracts),
     instruments: byInstrument.size,
     accounts: accounts.size,
-    top: [...byInstrument]
-      .map(([instrument, total]) => ({ instrument, contracts: total }))
-      .sort((a, b) => b.contracts - a.contracts)
-      .slice(0, 5),
+    byInstrument: [...byInstrument.values()].sort((a, b) =>
+      a.instrument.localeCompare(b.instrument),
+    ),
     largest,
-    crossed: [...directionsPerInstrument]
-      .filter(([, directions]) => directions.size > 1)
-      .map(([instrument]) => instrument)
-      .sort(),
     duplicates: [...pairs]
       .filter(([, count]) => count > 1)
       .map(([pair]) => pair)

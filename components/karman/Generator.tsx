@@ -363,14 +363,27 @@ export function Generator() {
                     </dd>
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <dt className="w-28 shrink-0 text-zinc-500">Больше всего</dt>
-                  <dd>
-                    {stats.top
-                      .map((item) => `${item.instrument} — ${item.contracts}`)
-                      .join(", ")}
-                  </dd>
+              </dl>
+
+              <div className="space-y-1">
+                <div className="text-xs text-zinc-500">
+                  Инструменты в пачке — проверьте, что это только закрываемая серия
                 </div>
+                <ul className="flex flex-wrap gap-1">
+                  {stats.byInstrument.map((item) => (
+                    <li
+                      key={item.instrument}
+                      className="rounded border border-zinc-300 bg-white px-2 py-0.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                      title={`${item.orders} ${plural(item.orders, ORDER)}`}
+                    >
+                      {item.instrument}{" "}
+                      <span className="text-zinc-500 tabular-nums">{item.contracts}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <dl className="space-y-1 text-sm">
                 {stats.skipped > 0 && (
                   <div className="flex gap-2">
                     <dt className="w-28 shrink-0 text-zinc-500">Не войдёт</dt>
@@ -381,13 +394,6 @@ export function Generator() {
                   </div>
                 )}
               </dl>
-
-              {stats.crossed.length > 0 && (
-                <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-                  Заявки в обе стороны по одному инструменту: {stats.crossed.join(", ")}. В стакане
-                  они встретятся друг с другом — пачка торгует сама с собой и дважды платит спред.
-                </p>
-              )}
 
               {stats.duplicates.length > 0 && (
                 <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
