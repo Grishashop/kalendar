@@ -70,17 +70,22 @@ export function checkContract(
     };
   }
 
-  // Дата из вставки может отставать от справочника, если выгрузка сделана
-  // до перехода на новую серию — такое расхождение важнее молчания.
+  // Колонка QUIK «Дата погашения» — это последний день обращения (LASTTRADEDATE),
+  // а не дата исполнения: у поставочных фьючерсов на акции они отличаются на день
+  // (17.09 против 18.09), у расчётных совпадают. Проверено на живой выдаче ISS.
+  // Принимаем обе даты: смысл проверки — поймать не ту серию, где обе разойдутся
+  // на месяцы, а не спорить с терминалом о терминологии.
   const pasted = parseDate(maturity);
   if (pasted) {
     const iso = `${pasted.getFullYear()}-${String(pasted.getMonth() + 1).padStart(2, "0")}-${String(
       pasted.getDate(),
     ).padStart(2, "0")}`;
-    if (iso !== contract.deliveryDate) {
+    if (iso !== contract.lastTradeDate && iso !== contract.deliveryDate) {
       return {
         verdict: "maturityMismatch",
-        message: `${secid}: дата погашения ${iso} не совпадает со справочником (${contract.deliveryDate})`,
+        message:
+          `${secid}: дата погашения ${iso} не совпадает со справочником ` +
+          `(обращение до ${contract.lastTradeDate}, исполнение ${contract.deliveryDate})`,
       };
     }
   }
