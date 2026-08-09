@@ -61,8 +61,7 @@ export function computeStats(plan: Plan, enabled: readonly boolean[]): Stats | n
   let largest: Stats["largest"] = null;
 
   for (const item of plan.positions) {
-    // «Не проверен» — не провал: справочник просто не ответил по этому активу.
-    if (!["ok", "unchecked", "deliveryUnknown"].includes(item.check.verdict)) checkFailed += 1;
+    if (item.check.verdict !== "ok" && item.check.verdict !== "unchecked") checkFailed += 1;
 
     if (!enabled[item.index] || item.skip) {
       skipped += 1;

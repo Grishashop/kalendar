@@ -116,10 +116,13 @@ export function computePrice(input: PriceInput): PriceResult {
 
   if (mode === "limit") {
     const side = quote === null ? null : positiveOrNull(isBuy ? quote.ask : quote.bid);
+    // Отрицательный возраст означает, что стакан новее момента отсчёта —
+    // рассинхрон часов или обновление прямо во время запроса. Это признак
+    // предельно свежих данных, а не их отсутствия.
     const ageSec =
-      quote === null || quote.ageSec === null || !Number.isFinite(quote.ageSec) || quote.ageSec < 0
+      quote === null || quote.ageSec === null || !Number.isFinite(quote.ageSec)
         ? null
-        : quote.ageSec;
+        : Math.max(0, quote.ageSec);
 
     if (quote === null) {
       reason = "нет котировки";

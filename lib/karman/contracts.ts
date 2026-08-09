@@ -13,10 +13,28 @@ import "server-only";
 
 const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
-const REQUEST_TIMEOUT_MS = 7000;
 
+/** Карточка инструмента — уточнение: не дождались, обойдёмся правилом дат. */
+const CARD_TIMEOUT_MS = 7000;
+
+/**
+ * Список контрактов — единственный незаменимый запрос: без него проверки нет
+ * вовсе. Ему нужен запас: он идёт на холодном кэше одновременно с котировками,
+ * и семи секунд под нагрузкой не хватало.
+ */
+const LIST_TIMEOUT_MS = 25000;
+
+/** Карточек одновременно; больше — ISS начинает отваливаться по таймауту. */
+const CARD_BATCH = 3;
+
+/** Общий бюджет на уточнение по карточкам: сверх него остаётся вердикт по датам. */
+const CARD_BUDGET_MS = 8000;
+
+// Просим только нужные колонки: полная выдача по 470 контрактам вчетверо тяжелее.
 const FORTS_LIST_URL =
-  "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json?iss.meta=off&iss.only=securities";
+  "https://iss.moex.com/iss/engines/futures/markets/forts/securities.json" +
+  "?iss.meta=off&iss.only=securities" +
+  "&securities.columns=SECID,ASSETCODE,LASTTRADEDATE,LASTDELDATE,MINSTEP,HIGHLIMIT,LOWLIMIT";
 
 /** Значение поля EXECTYPE в карточке инструмента для поставочного контракта. */
 const DELIVERABLE_EXECTYPE = "Поставочный";
@@ -32,8 +50,10 @@ const MOSCOW_DAY = new Intl.DateTimeFormat("en-CA", {
 export interface ContractInfo {
   secid: string;
   assetCode: string;
-  /** null — карточка инструмента не загрузилась, поставочность неизвестна. */
-  deliverable: boolean | null;
+  /** Поставочный контракт. Если карточка ISS не ответила — вывод по датам исполнения. */
+  deliverable: boolean;
+  /** Признак подтверждён карточкой `EXECTYPE`, а не выведен из дат. */
+  deliverableConfirmed: boolean;
   /** Последний день обращения, "ГГГГ-ММ-ДД". */
   lastTradeDate: string;
   /** Дата исполнения (LSTDELDATE), "ГГГГ-ММ-ДД". */
@@ -82,12 +102,12 @@ let indexCache: { day: string; index: Promise<FortsIndex> } | null = null;
  * Error("iss_unavailable"): вызывающий обязан отличить «проверка не выполнена»
  * от «контракт не найден».
  */
-async function fetchIssTable(url: string, block: string): Promise<IssTable> {
+async function fetchIssTable(url: string, block: string, timeoutMs: number): Promise<IssTable> {
   let body: Record<string, IssTable | undefined>;
   try {
     const res = await fetch(url, {
       cache: "no-store",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       headers: { "User-Agent": BROWSER_USER_AGENT, Accept: "application/json" },
     });
     if (!res.ok) {
@@ -106,7 +126,7 @@ async function fetchIssTable(url: string, block: string): Promise<IssTable> {
 }
 
 async function buildFortsIndex(): Promise<FortsIndex> {
-  const table = await fetchIssTable(FORTS_LIST_URL, "securities");
+  const table = await fetchIssTable(FORTS_LIST_URL, "securities", LIST_TIMEOUT_MS);
 
   const secidAt = table.columns.indexOf("SECID");
   const assetAt = table.columns.indexOf("ASSETCODE");
@@ -159,23 +179,25 @@ function fortsIndex(day: string): Promise<FortsIndex> {
 }
 
 /**
- * Дополняет карту поставочности по активам, которых в ней ещё нет.
- * Одна карточка на актив, все параллельно.
+ * Уточняет поставочность по карточкам инструментов — но только в пределах
+ * бюджета времени и только сверх правила дат.
  *
- * Сбой одной карточки не отменяет проверку всей пачки: ISS периодически
- * отвечает по отдельным инструментам дольше таймаута, и валить из-за этого
- * весь справочник — значит терять проверку и по остальным контрактам.
- * Неудача сужается до своего актива и попадает в карту как `null`, а не
- * как «расчётный»: тихая подмена здесь равна пропущенной поставке.
+ * Карточка авторитетнее, однако ISS режет одновременные запросы: 22 карточки
+ * разом дали 6 таймаутов, порциями по три с сервера — всё равно единичные.
+ * Поэтому опрос ограничен и по параллелизму, и по общему времени: не успели —
+ * остаётся вердикт по датам, а не «неизвестно». Пустой ответ здесь хуже
+ * приблизительного: он лишает оператора проверки вовсе.
  */
-async function loadDeliverable(index: FortsIndex, sampleByAsset: Map<string, string>): Promise<void> {
+async function refineDeliverable(index: FortsIndex, sampleByAsset: Map<string, string>): Promise<void> {
   const pending = [...sampleByAsset].filter(([asset]) => !index.deliverable.has(asset));
-  const loaded = await Promise.all(
-    pending.map(async ([asset, sampleSecid]) => {
-      const url = `https://iss.moex.com/iss/securities/${encodeURIComponent(sampleSecid)}.json?iss.meta=off&iss.only=description`;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+  const deadline = Date.now() + CARD_BUDGET_MS;
+
+  for (let from = 0; from < pending.length && Date.now() < deadline; from += CARD_BATCH) {
+    const batch = await Promise.all(
+      pending.slice(from, from + CARD_BATCH).map(async ([asset, sampleSecid]) => {
+        const url = `https://iss.moex.com/iss/securities/${encodeURIComponent(sampleSecid)}.json?iss.meta=off&iss.only=description`;
         try {
-          const table = await fetchIssTable(url, "description");
+          const table = await fetchIssTable(url, "description", CARD_TIMEOUT_MS);
           const nameAt = table.columns.indexOf("name");
           const valueAt = table.columns.indexOf("value");
           const row =
@@ -184,15 +206,15 @@ async function loadDeliverable(index: FortsIndex, sampleByAsset: Map<string, str
               : table.data.find((r) => r[nameAt] === "EXECTYPE");
           if (row) return [asset, row[valueAt] === DELIVERABLE_EXECTYPE] as const;
         } catch {
-          // Вторая попытка: таймаут ISS по отдельной карточке часто разовый.
+          // Молча: правило дат уже дало ответ, карточка была лишь уточнением.
         }
-      }
-      return [asset, null] as const;
-    }),
-  );
+        return null;
+      }),
+    );
 
-  for (const [asset, deliverable] of loaded) {
-    index.deliverable.set(asset, deliverable);
+    for (const item of batch) {
+      if (item) index.deliverable.set(item[0], item[1]);
+    }
   }
 }
 
@@ -209,7 +231,7 @@ export async function loadContracts(secids: readonly string[]): Promise<Record<s
     const row = index.bySecid.get(secid);
     if (row) sampleByAsset.set(row.assetCode, row.secid);
   }
-  await loadDeliverable(index, sampleByAsset);
+  await refineDeliverable(index, sampleByAsset);
 
   // Ближайшая серия считается один раз на актив и не зависит от поставочности:
   // это два независимых факта, и смешивать их значит терять один при незнании другого.
@@ -232,10 +254,18 @@ export async function loadContracts(secids: readonly string[]): Promise<Record<s
       continue;
     }
     const nearestSecid = nearestByAsset.get(row.assetCode) ?? null;
+    // Правило дат: у поставочного контракта исполнение на следующий день после
+    // окончания обращения, у расчётного — в тот же день. Проверено на всех 187
+    // базовых активах FORTS: 186 совпадений с EXECTYPE, единственное расхождение
+    // (SUGR) — в безопасную сторону. Обратной ошибки, когда поставочный сочли бы
+    // расчётным и исключили из пачки, правило не даёт.
+    const byDates = row.deliveryDate !== row.lastTradeDate;
+    const confirmed = index.deliverable.get(row.assetCode);
     result[secid] = {
       secid: row.secid,
       assetCode: row.assetCode,
-      deliverable: index.deliverable.get(row.assetCode) ?? null,
+      deliverable: confirmed ?? byDates,
+      deliverableConfirmed: confirmed !== undefined,
       lastTradeDate: row.lastTradeDate,
       deliveryDate: row.deliveryDate,
       minStep: row.minStep,

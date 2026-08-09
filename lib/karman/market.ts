@@ -96,7 +96,12 @@ export async function loadQuotes(secids: readonly string[]): Promise<QuotesResul
         bid: item.bid ?? null,
         ask: item.ask ?? null,
         last: item.last_price ?? null,
-        ageSec: item.ob_ms_timestamp ? Math.round((at - item.ob_ms_timestamp) / 1000) : null,
+        // Момент отсчёта берём после ответа, а не до запроса: стакан обновляется
+        // во время самого запроса, и у живого инструмента возраст выходил
+        // отрицательным — то есть лимитного режима лишались как раз лучшие данные.
+        ageSec: item.ob_ms_timestamp
+          ? Math.max(0, Math.round((Date.now() - item.ob_ms_timestamp) / 1000))
+          : null,
       };
     }
     return { quotes, loaded: true, error: null, at };

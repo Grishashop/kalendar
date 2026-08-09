@@ -34,7 +34,6 @@ const DELIMITER_LABELS: Record<string, string> = {
 const VERDICT_LABELS: Record<string, string> = {
   ok: "",
   unchecked: "—",
-  deliveryUnknown: "не проверен",
   unknown: "нет в справочнике",
   notDeliverable: "расчётный",
   notNearest: "не ближайшая",

@@ -12,7 +12,6 @@ import { parseDate } from "./parse";
 export type CheckVerdict =
   | "ok"
   | "unchecked"
-  | "deliveryUnknown"
   | "unknown"
   | "notDeliverable"
   | "notNearest"
@@ -43,15 +42,6 @@ export function checkContract(
     return {
       verdict: "unknown",
       message: `${secid}: контракта нет в справочнике FORTS — возможно, уже отторговался`,
-    };
-  }
-
-  if (contract.deliverable === null) {
-    // Незнание нельзя приравнивать к «расчётный»: это исключило бы строку
-    // из пачки и отправило контракт на поставку.
-    return {
-      verdict: "deliveryUnknown",
-      message: `${secid}: справочник не ответил, поставочность не проверена`,
     };
   }
 
