@@ -17,7 +17,12 @@ export interface DirectionTotal {
   contracts: number;
 }
 
-/** Итог по одному инструменту с разбивкой по сторонам закрываемой позиции. */
+/**
+ * Итог по одному инструменту. Считается по всей вставке, а не только по
+ * отмеченному: это то, ПО ЧЕМУ принимают решение о включении инструмента.
+ * Число, зависящее от текущей галочки, показывало бы у выключенного нуль —
+ * то есть ровно ничего.
+ */
 export interface InstrumentTotal {
   instrument: string;
   orders: number;
@@ -26,6 +31,10 @@ export interface InstrumentTotal {
   long: number;
   /** Контракты в короткой позиции — закрываются покупкой. */
   short: number;
+  /** Индексы строк позиций — по ним чип переключает отбор. */
+  rows: number[];
+  /** Сколько из этих строк отмечено: 0, все или частично. */
+  enabledCount: number;
 }
 
 export interface Stats {
@@ -35,7 +44,7 @@ export interface Stats {
   byDirection: DirectionTotal[];
   instruments: number;
   accounts: number;
-  /** Все инструменты пачки по алфавиту — чтобы глазами проверить состав серии. */
+  /** Инструменты всей вставки по алфавиту; отмеченные уйдут в карман. */
   byInstrument: InstrumentTotal[];
   largest: { account: string; instrument: string; direction: string; contracts: number } | null;
   /** Пары «счёт + инструмент», встречающиеся больше одного раза. */
@@ -71,8 +80,33 @@ export function computeStats(plan: Plan, enabled: readonly boolean[]): Stats | n
   let failed = 0;
   let largest: Stats["largest"] = null;
 
+  const included = new Set<string>();
+
   for (const item of plan.positions) {
     if (item.check.verdict !== "ok" && item.check.verdict !== "unchecked") checkFailed += 1;
+
+    // Чипы считаются до отбора: выключенный инструмент обязан остаться видимым
+    // со своими числами, иначе его нечем будет включить обратно.
+    // Строки, которые не станут заявками ни при каких галочках, сюда не идут.
+    if (!item.skip && !item.error) {
+      const perInstrument = byInstrument.get(item.instrument) ?? {
+        instrument: item.instrument,
+        orders: 0,
+        contracts: 0,
+        long: 0,
+        short: 0,
+        rows: [],
+        enabledCount: 0,
+      };
+      perInstrument.orders += 1;
+      perInstrument.contracts += item.quantity;
+      // Покупка закрывает шорт, продажа — лонг: сторона заявки обратна стороне позиции.
+      if (item.buying) perInstrument.short += item.quantity;
+      else perInstrument.long += item.quantity;
+      perInstrument.rows.push(item.index);
+      if (enabled[item.index]) perInstrument.enabledCount += 1;
+      byInstrument.set(item.instrument, perInstrument);
+    }
 
     if (!enabled[item.index] || item.skip) {
       skipped += 1;
@@ -101,19 +135,7 @@ export function computeStats(plan: Plan, enabled: readonly boolean[]): Stats | n
     total.contracts += item.quantity;
     byDirection.set(item.direction, total);
 
-    const perInstrument = byInstrument.get(item.instrument) ?? {
-      instrument: item.instrument,
-      orders: 0,
-      contracts: 0,
-      long: 0,
-      short: 0,
-    };
-    perInstrument.orders += 1;
-    perInstrument.contracts += item.quantity;
-    // Покупка закрывает шорт, продажа — лонг: сторона заявки обратна стороне позиции.
-    if (item.buying) perInstrument.short += item.quantity;
-    else perInstrument.long += item.quantity;
-    byInstrument.set(item.instrument, perInstrument);
+    included.add(item.instrument);
 
     const pair = `${item.account} · ${item.instrument}`;
     pairs.set(pair, (pairs.get(pair) ?? 0) + 1);
@@ -132,7 +154,8 @@ export function computeStats(plan: Plan, enabled: readonly boolean[]): Stats | n
     orders,
     contracts,
     byDirection: [...byDirection.values()].sort((a, b) => b.contracts - a.contracts),
-    instruments: byInstrument.size,
+    // Крупная цифра считает то, что уйдёт в карман, а не то, что во вставке.
+    instruments: included.size,
     accounts: accounts.size,
     byInstrument: [...byInstrument.values()].sort((a, b) =>
       a.instrument.localeCompare(b.instrument),

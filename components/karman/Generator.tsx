@@ -52,9 +52,9 @@ const BLOCKING_VERDICTS = new Set<CheckVerdict>([
 ]);
 
 // Малая непрозрачность: заливка ложится поверх фона чипа и в светлой, и в тёмной
-// теме, оставляя моноширинный текст читаемым.
-const LONG_FILL = "rgba(34,197,94,0.28)";
-const SHORT_FILL = "rgba(239,68,68,0.28)";
+// теме, оставляя моноширинный текст читаемым. `intensity` гасит выключенный чип.
+const LONG_FILL = (intensity: number) => `rgba(34,197,94,${0.28 * intensity})`;
+const SHORT_FILL = (intensity: number) => `rgba(239,68,68,${0.28 * intensity})`;
 
 const ORDER = ["заявка", "заявки", "заявок"] as const;
 const CONTRACT = ["контракт", "контракта", "контрактов"] as const;
@@ -604,7 +604,9 @@ export function Generator() {
             </div>
           )}
 
-          {stats && stats.orders > 0 && (
+          {/* Условие по инструментам, а не по заявкам: после «снять все» сводка
+              обязана остаться на экране — иначе чипами нечего будет включить. */}
+          {stats && stats.byInstrument.length > 0 && (
             <Summary
               stats={stats}
               cancelOrders={cancelOrders}
@@ -615,6 +617,12 @@ export function Generator() {
               reconcileGaps={plan.positions
                 .filter((item) => item.reconcile)
                 .map((item) => `${item.account} · ${item.instrument}: ${item.reconcile}`)}
+              onToggleInstrument={(rows, on) =>
+                setEnabled((current) =>
+                  current.map((flag, i) => (rows.includes(i) ? on : flag)),
+                )
+              }
+              onToggleAll={(on) => setEnabled((current) => current.map(() => on))}
             />
           )}
 
@@ -778,6 +786,8 @@ function Summary({
   orphanOrders,
   orphanStops,
   reconcileGaps,
+  onToggleInstrument,
+  onToggleAll,
 }: {
   stats: Stats;
   cancelOrders: boolean;
@@ -786,6 +796,8 @@ function Summary({
   orphanOrders: number;
   orphanStops: number;
   reconcileGaps: string[];
+  onToggleInstrument: (rows: readonly number[], on: boolean) => void;
+  onToggleAll: (on: boolean) => void;
 }) {
   return (
     <div className="space-y-3 rounded-md border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
@@ -874,8 +886,25 @@ function Summary({
       </dl>
 
       <div className="space-y-1">
-        <div className="text-xs text-zinc-500">
-          Инструменты в пачке — зелёное закрывается продажей, красное покупкой
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-zinc-500">
+          <span>
+            Инструменты во вставке — отмеченные уйдут в карман; зелёное закрывается продажей,
+            красное покупкой
+          </span>
+          <button
+            type="button"
+            className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
+            onClick={() => onToggleAll(true)}
+          >
+            отметить все
+          </button>
+          <button
+            type="button"
+            className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
+            onClick={() => onToggleAll(false)}
+          >
+            снять все
+          </button>
         </div>
         <ul className="flex flex-wrap gap-1">
           {stats.byInstrument.map((item) => {
@@ -887,20 +916,40 @@ function Summary({
             // худшая пара для различения, и при дейтеранопии читаться должен
             // сам стык. Отсюда жёсткие остановки градиента вместо перехода.
             const longShare = item.contracts > 0 ? (item.long / item.contracts) * 100 : 0;
+            const all = item.enabledCount === item.rows.length;
+            const none = item.enabledCount === 0;
+            // Выключенный чип гасим прозрачностью, а не зачёркиванием: зачёркнутый
+            // моноширинный текст в двадцать пикселей нечитаем.
+            const fill = none ? 0.35 : 1;
             return (
-              <li
-                key={item.instrument}
-                className="rounded border border-zinc-300 bg-white px-2 py-0.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
-                style={{
-                  backgroundImage: `linear-gradient(to right, ${LONG_FILL} 0 ${longShare}%, ${SHORT_FILL} ${longShare}% 100%)`,
-                }}
-                title={
-                  `${item.instrument}: лонг ${item.long} · шорт ${item.short} · ` +
-                  `${item.orders} ${plural(item.orders, ORDER)}`
-                }
-              >
-                {item.instrument}{" "}
-                <span className="text-zinc-500 tabular-nums">{item.contracts}</span>
+              <li key={item.instrument}>
+                <button
+                  type="button"
+                  aria-pressed={!none}
+                  className={`rounded border px-2 py-0.5 font-mono text-xs transition-opacity ${
+                    none
+                      ? "border-zinc-200 bg-white text-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-600"
+                      : all
+                        ? "border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950"
+                        : "border-dashed border-zinc-400 bg-white dark:border-zinc-500 dark:bg-zinc-950"
+                  }`}
+                  style={{
+                    backgroundImage: `linear-gradient(to right, ${LONG_FILL(fill)} 0 ${longShare}%, ${SHORT_FILL(fill)} ${longShare}% 100%)`,
+                  }}
+                  title={
+                    `${item.instrument}: лонг ${item.long} · шорт ${item.short} · ` +
+                    `${item.orders} ${plural(item.orders, ORDER)} · ` +
+                    `отмечено ${item.enabledCount} из ${item.rows.length}`
+                  }
+                  // Всё включено — выключаем; в любом другом состоянии включаем.
+                  // То же правило, что у чекбокса в шапке таблицы.
+                  onClick={() => onToggleInstrument(item.rows, !all)}
+                >
+                  {item.instrument}{" "}
+                  <span className={none ? "tabular-nums" : "text-zinc-500 tabular-nums"}>
+                    {item.contracts}
+                  </span>
+                </button>
               </li>
             );
           })}
