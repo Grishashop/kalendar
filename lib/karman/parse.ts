@@ -9,7 +9,19 @@
  */
 
 import { normalizeNumeric } from "./expression";
-import type { Template, TemplateColumn } from "./template";
+import type { TemplateColumn } from "./template";
+
+/**
+ * Описание одной вставки. Не `Template` целиком: вставок на странице три —
+ * позиции, активные заявки и стоп-заявки, — и разбираются они одним кодом.
+ */
+export interface PasteSpec {
+  columns: TemplateColumn[];
+  /** Колонки, значения которых в корректной выборке одинаковы во всех строках. */
+  warnUniform: string[];
+  /** Колонки, которые в корректной выборке пусты во всех строках. */
+  warnEmpty: string[];
+}
 
 export type Delimiter = "\t" | ";";
 
@@ -91,7 +103,7 @@ function looksLikeIndexColumn(rows: string[][]): boolean {
   return values.slice(start).every((value, offset) => value === String(offset + 1));
 }
 
-export function parseClipboard(text: string, template: Template): ParseResult {
+export function parseClipboard(text: string, template: PasteSpec): ParseResult {
   const lines = text
     .replace(/\r\n?/g, "\n")
     .split("\n")

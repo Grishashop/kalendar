@@ -23,21 +23,54 @@ export interface TemplateColumn {
   sortByAbs?: boolean;
 }
 
-/** Роли для сводки: имена колонок или именованных выражений. */
-export interface TemplateStats {
-  /** Количество в заявке — число. */
+/**
+ * Роли: имена колонок или именованных выражений, по которым код находит нужные
+ * величины. Объявляются один раз и служат сразу сводке, сверкам и сопоставлению
+ * вставок между собой — чтобы одно и то же понятие не описывалось дважды.
+ */
+export interface TemplateRoles {
+  /** Позиции: количество в заявке — число. */
   quantity: string;
-  /** Направление заявки — текст. */
+  /** Позиции: направление заявки — текст. */
   direction: string;
   instrument: string;
   account: string;
+  /** Позиции: дата погашения — для сверки со справочником биржи. */
+  maturity: string;
+  /** Позиции: объём активных заявок на покупку и продажу. */
+  activeBuy: string;
+  activeSell: string;
+  /** Заявки: по этим колонкам заявка привязывается к позиции. */
+  orderAccount: string;
+  orderInstrument: string;
+  /** Заявки: сторона и объём — для сверки с «Акт. покупка» и «Акт. продажа». */
+  orderSide: string;
+  orderQuantity: string;
+  /** Значение стороны, означающее покупку; всё прочее считается продажей. */
+  orderBuyLabel: string;
+  /** Стоп-заявки: привязка к позиции. Сверить объём не с чем. */
+  stopAccount: string;
+  stopInstrument: string;
+}
+
+/** Умолчания ценообразования; правятся в редакторе шаблона. */
+export interface TemplatePricing {
+  /** Спред на проскальзывание, проценты от котировки. */
+  spreadPercent: number;
+  /** Предельный возраст стакана в секундах; старше — заявка уходит рыночной. */
+  freshnessSec: number;
 }
 
 export interface Template {
   id: string;
   name: string;
   description: string;
+  /** Колонки основной вставки — позиций. */
   columns: TemplateColumn[];
+  /** Колонки вставки активных заявок. */
+  orderColumns: TemplateColumn[];
+  /** Колонки вставки активных стоп-заявок. */
+  stopColumns: TemplateColumn[];
   /**
    * Именованные выражения. Ссылка на них в тексте транзакции и в сводке
    * выглядит как ссылка на колонку: `[Количество]`. Нужны, чтобы правило
@@ -50,9 +83,14 @@ export interface Template {
   warnUniform: string[];
   /** Колонки, которые в корректной выборке пусты во всех строках. */
   warnEmpty: string[];
-  /** Текст транзакции с выражениями `${...}`. */
+  /** Текст транзакции на ввод заявки. */
   line: string;
-  stats: TemplateStats;
+  /** Текст транзакции на снятие обычной заявки; выражения над `orderColumns`. */
+  cancelLine: string;
+  /** Текст транзакции на снятие стоп-заявки; выражения над `stopColumns`. */
+  cancelStopLine: string;
+  roles: TemplateRoles;
+  pricing: TemplatePricing;
 }
 
 /** Псевдоколонка: сквозной номер строки в выводе, считается после отсева. */
@@ -64,10 +102,10 @@ const FORTS_LINE = [
   "ACTION=Ввод заявки",
   "Торговый счет=${[Торговый счет]}",
   "К/П=${[Направление]}",
-  "Тип=Рыночная",
+  "Тип=${[Тип заявки]}",
   "Класс=SPBFUT",
   "Инструмент=${[Код инструмента]}",
-  "Цена=0",
+  "Цена=${[Цена заявки]}",
   "Количество=${[Количество]}",
   "Условие исполнения=Поставить в очередь",
   "Комментарий=/&!62",
@@ -77,13 +115,22 @@ const FORTS_LINE = [
   "",
 ].join(";");
 
+// Снятие не требует ни счёта, ни инструмента — номер заявки уникален сам по себе.
+// Строки получены выгрузкой из терминала, см. docs/adr/0009.
+const FORTS_CANCEL_LINE =
+  "TRANS_ID=${[№]};CLASSCODE=SPBFUT;ACTION=Снятие заявки;Номер заявки=${[Номер заявки]};";
+
+const FORTS_CANCEL_STOP_LINE =
+  "TRANS_ID=${[№]};CLASSCODE=SPBFUT;ACTION=Снять стоп-заявку;" +
+  "Номер Стоп-Заявки=${[Номер стоп-заявки]};";
+
 export const BUILTIN_TEMPLATES: readonly Template[] = [
   {
     id: "forts-expiration",
     name: "Экспирация FORTS",
     description:
       "Закрытие позиций по поставочным фьючерсным контрактам. Вставьте выборку " +
-      "из QUIK, отфильтрованную по дате погашения и без активных заявок.",
+      "из QUIK, отфильтрованную по дате погашения ближайшей поставочной серии.",
     columns: [
       // Счёт длиннее тикера — регулярки разводят две текстовые колонки,
       // которые типовая проверка сама по себе не различает.
@@ -94,6 +141,22 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
       { name: "Акт. покупка", type: "number", nullable: true },
       { name: "Акт. продажа", type: "number", nullable: true },
     ],
+    orderColumns: [
+      { name: "Торговый счет", type: "text", pattern: "^[A-Za-z0-9_-]{6,16}$" },
+      { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9]{3,5}$" },
+      // Только текст: номера заявок бывают девятнадцатизначными и в число
+      // не помещаются — округление дало бы снятие чужой заявки (ADR-0009).
+      { name: "Номер заявки", type: "text", pattern: "^\\d+$" },
+      { name: "К/П", type: "text" },
+      { name: "Количество", type: "number" },
+    ],
+    stopColumns: [
+      { name: "Торговый счет", type: "text", pattern: "^[A-Za-z0-9_-]{6,16}$" },
+      { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9]{3,5}$" },
+      { name: "Номер стоп-заявки", type: "text", pattern: "^\\d+$" },
+      { name: "К/П", type: "text" },
+      { name: "Количество", type: "number" },
+    ],
     values: {
       // Закрытие позиции: длинную продаём, короткую откупаем.
       Направление: 'IF([Тек. чист. поз.]>0;"Продажа";"Покупка")',
@@ -101,18 +164,34 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
     },
     skipWhen: "[Количество] = 0",
     warnUniform: ["Дата погашения"],
-    warnEmpty: ["Акт. покупка", "Акт. продажа"],
+    warnEmpty: [],
     line: FORTS_LINE,
-    stats: {
+    cancelLine: FORTS_CANCEL_LINE,
+    cancelStopLine: FORTS_CANCEL_STOP_LINE,
+    roles: {
       quantity: "Количество",
       direction: "Направление",
       instrument: "Код инструмента",
       account: "Торговый счет",
+      maturity: "Дата погашения",
+      activeBuy: "Акт. покупка",
+      activeSell: "Акт. продажа",
+      orderAccount: "Торговый счет",
+      orderInstrument: "Код инструмента",
+      orderSide: "К/П",
+      orderQuantity: "Количество",
+      orderBuyLabel: "Покупка",
+      stopAccount: "Торговый счет",
+      stopInstrument: "Код инструмента",
     },
+    pricing: { spreadPercent: 0.5, freshnessSec: 60 },
   },
 ];
 
-const STORAGE_KEY = "karman.templates.v1";
+// v2: форма шаблона изменилась несовместимо — добавились вставки заявок,
+// строки снятия и роли. Правки под старым ключом не подхватываются намеренно:
+// частично применённый старый шаблон опаснее сброшенного.
+const STORAGE_KEY = "karman.templates.v2";
 
 type StoredOverrides = Record<string, Partial<Template>>;
 
@@ -142,12 +221,17 @@ export function saveTemplate(template: Template): void {
   const overrides = readOverrides();
   overrides[template.id] = {
     columns: template.columns,
+    orderColumns: template.orderColumns,
+    stopColumns: template.stopColumns,
     values: template.values,
-    stats: template.stats,
+    roles: template.roles,
+    pricing: template.pricing,
     skipWhen: template.skipWhen,
     warnUniform: template.warnUniform,
     warnEmpty: template.warnEmpty,
     line: template.line,
+    cancelLine: template.cancelLine,
+    cancelStopLine: template.cancelStopLine,
   };
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
 }

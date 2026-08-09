@@ -16,6 +16,7 @@ import { toast } from "sonner";
 // из middleware (см. lib/supabase/middleware.ts: url.searchParams("loginRequired")).
 const PROTECTED_ROUTE_LABELS: Record<string, string> = {
   "/ticker": "Тикеры",
+  "/karman": "Карман транзакций",
 };
 
 interface Trader {
