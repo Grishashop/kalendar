@@ -184,7 +184,10 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
       stopAccount: "Торговый счет",
       stopInstrument: "Код инструмента",
     },
-    pricing: { spreadPercent: 0.5, freshnessSec: 60 },
+    // 120 с лежит в разрыве между двумя режимами: при живой ленте стакан
+    // ликвидного контракта обновляется за секунды, при задержанной возраст
+    // уходит за 900 с. Порог правится здесь же, без изменения кода.
+    pricing: { spreadPercent: 0.5, freshnessSec: 120 },
   },
 ];
 
