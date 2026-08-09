@@ -17,6 +17,17 @@ export interface DirectionTotal {
   contracts: number;
 }
 
+/** Итог по одному инструменту с разбивкой по сторонам закрываемой позиции. */
+export interface InstrumentTotal {
+  instrument: string;
+  orders: number;
+  contracts: number;
+  /** Контракты в длинной позиции — закрываются продажей. */
+  long: number;
+  /** Контракты в короткой позиции — закрываются покупкой. */
+  short: number;
+}
+
 export interface Stats {
   /** Строк, которые станут заявками на закрытие. */
   orders: number;
@@ -25,7 +36,7 @@ export interface Stats {
   instruments: number;
   accounts: number;
   /** Все инструменты пачки по алфавиту — чтобы глазами проверить состав серии. */
-  byInstrument: { instrument: string; orders: number; contracts: number }[];
+  byInstrument: InstrumentTotal[];
   largest: { account: string; instrument: string; direction: string; contracts: number } | null;
   /** Пары «счёт + инструмент», встречающиеся больше одного раза. */
   duplicates: string[];
@@ -45,7 +56,7 @@ export function computeStats(plan: Plan, enabled: readonly boolean[]): Stats | n
   if (plan.templateError) return null;
 
   const byDirection = new Map<string, DirectionTotal>();
-  const byInstrument = new Map<string, { instrument: string; orders: number; contracts: number }>();
+  const byInstrument = new Map<string, InstrumentTotal>();
   const pairs = new Map<string, number>();
   const accounts = new Set<string>();
 
@@ -94,9 +105,14 @@ export function computeStats(plan: Plan, enabled: readonly boolean[]): Stats | n
       instrument: item.instrument,
       orders: 0,
       contracts: 0,
+      long: 0,
+      short: 0,
     };
     perInstrument.orders += 1;
     perInstrument.contracts += item.quantity;
+    // Покупка закрывает шорт, продажа — лонг: сторона заявки обратна стороне позиции.
+    if (item.buying) perInstrument.short += item.quantity;
+    else perInstrument.long += item.quantity;
     byInstrument.set(item.instrument, perInstrument);
 
     const pair = `${item.account} · ${item.instrument}`;

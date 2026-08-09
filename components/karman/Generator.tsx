@@ -51,6 +51,11 @@ const BLOCKING_VERDICTS = new Set<CheckVerdict>([
   "maturityMismatch",
 ]);
 
+// Малая непрозрачность: заливка ложится поверх фона чипа и в светлой, и в тёмной
+// теме, оставляя моноширинный текст читаемым.
+const LONG_FILL = "rgba(34,197,94,0.28)";
+const SHORT_FILL = "rgba(239,68,68,0.28)";
+
 const ORDER = ["заявка", "заявки", "заявок"] as const;
 const CONTRACT = ["контракт", "контракта", "контрактов"] as const;
 const INSTRUMENT = ["инструмент", "инструмента", "инструментов"] as const;
@@ -870,18 +875,35 @@ function Summary({
 
       <div className="space-y-1">
         <div className="text-xs text-zinc-500">
-          Инструменты в пачке — проверьте, что это только закрываемая серия
+          Инструменты в пачке — зелёное закрывается продажей, красное покупкой
         </div>
         <ul className="flex flex-wrap gap-1">
-          {stats.byInstrument.map((item) => (
-            <li
-              key={item.instrument}
-              className="rounded border border-zinc-300 bg-white px-2 py-0.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
-              title={`${item.orders} ${plural(item.orders, ORDER)}`}
-            >
-              {item.instrument} <span className="text-zinc-500 tabular-nums">{item.contracts}</span>
-            </li>
-          ))}
+          {stats.byInstrument.map((item) => {
+            // Цвет кодирует сторону ПОЗИЦИИ, а не заявки: лонг зелёный, шорт
+            // красный. Это противоположно раскраске стакана QUIK, где зелёная
+            // покупка, — не «исправлять».
+            //
+            // Долю несёт положение границы, а не оттенок: красный и зелёный —
+            // худшая пара для различения, и при дейтеранопии читаться должен
+            // сам стык. Отсюда жёсткие остановки градиента вместо перехода.
+            const longShare = item.contracts > 0 ? (item.long / item.contracts) * 100 : 0;
+            return (
+              <li
+                key={item.instrument}
+                className="rounded border border-zinc-300 bg-white px-2 py-0.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                style={{
+                  backgroundImage: `linear-gradient(to right, ${LONG_FILL} 0 ${longShare}%, ${SHORT_FILL} ${longShare}% 100%)`,
+                }}
+                title={
+                  `${item.instrument}: лонг ${item.long} · шорт ${item.short} · ` +
+                  `${item.orders} ${plural(item.orders, ORDER)}`
+                }
+              >
+                {item.instrument}{" "}
+                <span className="text-zinc-500 tabular-nums">{item.contracts}</span>
+              </li>
+            );
+          })}
         </ul>
       </div>
 

@@ -188,6 +188,11 @@ export interface PositionPlan {
   account: string;
   direction: string;
   quantity: number;
+  /**
+   * Заявка на покупку, то есть откуп короткой позиции. Считается один раз здесь,
+   * чтобы потребителям не требовался шаблон ради сравнения с ярлыком стороны.
+   */
+  buying: boolean;
   check: ContractCheck;
   priceType: OrderMode;
   price: number | null;
@@ -281,6 +286,7 @@ export function buildPlan(input: PlanInput): Plan {
       account: "",
       direction: "",
       quantity: 0,
+      buying: false,
       check: { verdict: "unchecked", message: null },
       priceType: "market",
       price: null,
@@ -386,6 +392,7 @@ export function buildPlan(input: PlanInput): Plan {
       account,
       direction,
       quantity,
+      buying,
       check,
       priceType: price.type,
       price: price.price,
