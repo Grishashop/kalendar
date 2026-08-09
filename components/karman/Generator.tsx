@@ -267,6 +267,7 @@ export function Generator() {
     (cancelOrders && parsedOrders.errors.length > 0) ||
     (cancelStops && parsedStops.errors.length > 0);
   const selectedCount = enabled.filter(Boolean).length;
+  const allSelected = enabled.length > 0 && selectedCount === enabled.length;
   const quoteAge = quotesAt === null ? null : Math.round((Date.now() - quotesAt) / 1000);
 
   function updateTemplate(next: Template) {
@@ -465,11 +466,23 @@ export function Generator() {
           )}
 
           {parsed.rows.length > 0 && (
+            <div className="text-xs text-zinc-500">
+              отмечено {selectedCount} из {parsed.rows.length}
+            </div>
+          )}
+
+          {parsed.rows.length > 0 && (
             <div className="max-h-[32rem] overflow-auto rounded-md border border-zinc-200 dark:border-zinc-800">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-zinc-100 text-left text-xs dark:bg-zinc-900">
                   <tr>
-                    <th className="w-10 p-2" />
+                    <th className="w-10 p-2">
+                      <Checkbox
+                        checked={allSelected}
+                        aria-label={allSelected ? "Снять все строки" : "Отметить все строки"}
+                        onCheckedChange={() => setEnabled((current) => current.map(() => !allSelected))}
+                      />
+                    </th>
                     <th className="w-10 p-2 text-zinc-500">#</th>
                     {template.columns.map((column, columnIndex) => {
                       const active = sort?.index === columnIndex ? sort.dir : null;
