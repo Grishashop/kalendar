@@ -18,7 +18,7 @@ import {
 import { checkContract, type ContractCheck } from "./checks";
 import type { ContractInfo } from "./contracts";
 import { computePrice, type OrderMode, type Quote } from "./pricing";
-import { parseDate } from "./parse";
+import { cellText, parseDate } from "./parse";
 import { ROW_NUMBER_COLUMN, type Template, type TemplateColumn } from "./template";
 
 /** Рыночные данные по одному инструменту. */
@@ -129,7 +129,9 @@ export function compileTemplate(template: Template): CompiledTemplate {
 }
 
 function cellValue(raw: string, column: TemplateColumn): Value {
-  const value = raw.trim();
+  // Тот же нормализатор, что и в проверке ячейки: иначе номер прошёл бы
+  // проверку без пробелов, а в транзакцию ушёл бы с ними.
+  const value = cellText(raw, column);
   if (column.type === "number") return value ? Number(normalizeNumeric(value)) : 0;
   if (column.type === "date") {
     const date = parseDate(value);
@@ -328,7 +330,7 @@ export function buildPlan(input: PlanInput): Plan {
       input.contractsLoaded,
     );
 
-    const buying = direction === roles.orderBuyLabel;
+    const buying = direction === roles.directionBuyLabel;
     const price = computePrice({
       direction: buying ? "buy" : "sell",
       mode: input.mode,

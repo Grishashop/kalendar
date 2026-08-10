@@ -6,7 +6,12 @@
  * (см. docs/adr/0004-shablony-v-kode-pravki-v-localstorage.md).
  */
 
-export type ColumnType = "number" | "text" | "date";
+/**
+ * `digits` — идентификатор из цифр: номер заявки, номер стоп-заявки. Числом его
+ * делать нельзя (девятнадцать знаков не помещаются в точность JavaScript),
+ * а разделители тысяч из QUIK убираются при разборе.
+ */
+export type ColumnType = "number" | "text" | "date" | "digits";
 
 export interface TemplateColumn {
   /** Имя, под которым колонка видна выражениям: `[Тек. чист. поз.]`. */
@@ -40,13 +45,22 @@ export interface TemplateRoles {
   /** Позиции: объём активных заявок на покупку и продажу. */
   activeBuy: string;
   activeSell: string;
+  /**
+   * Значение выражения направления, означающее покупку. Это НАШ словарь — то,
+   * что выдаёт выражение и что уходит в поле транзакции: «Покупка».
+   */
+  directionBuyLabel: string;
   /** Заявки: по этим колонкам заявка привязывается к позиции. */
   orderAccount: string;
   orderInstrument: string;
   /** Заявки: сторона и объём — для сверки с «Акт. покупка» и «Акт. продажа». */
   orderSide: string;
   orderQuantity: string;
-  /** Значение стороны, означающее покупку; всё прочее считается продажей. */
+  /**
+   * Значение колонки стороны во вставке заявок, означающее покупку. Это словарь
+   * QUIK, и он ДРУГОЙ: в таблице заявок стоит «Купля», а не «Покупка».
+   * Склеивать эти две роли нельзя — покупки посчитались бы продажами.
+   */
   orderBuyLabel: string;
   /** Стоп-заявки: привязка к позиции. Сверить объём не с чем. */
   stopAccount: string;
@@ -144,18 +158,19 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
     orderColumns: [
       { name: "Торговый счет", type: "text", pattern: "^[A-Za-z0-9_-]{6,16}$" },
       { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9]{3,5}$" },
-      // Только текст: номера заявок бывают девятнадцатизначными и в число
-      // не помещаются — округление дало бы снятие чужой заявки (ADR-0009).
-      { name: "Номер заявки", type: "text", pattern: "^\\d+$" },
-      { name: "К/П", type: "text" },
-      { name: "Количество", type: "number" },
+      // Тип «Номер»: девятнадцать знаков не помещаются в точность JavaScript,
+      // а из буфера номер приходит с разделителями тысяч, если в настройках
+      // QUIK выключено «Формальное представление данных».
+      { name: "Номер заявки", type: "digits" },
+      { name: "Операция", type: "text" },
+      { name: "Кол-во", type: "number" },
     ],
     stopColumns: [
       { name: "Торговый счет", type: "text", pattern: "^[A-Za-z0-9_-]{6,16}$" },
       { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9]{3,5}$" },
-      { name: "Номер стоп-заявки", type: "text", pattern: "^\\d+$" },
-      { name: "К/П", type: "text" },
-      { name: "Количество", type: "number" },
+      { name: "Номер стоп-заявки", type: "digits" },
+      { name: "Операция", type: "text" },
+      { name: "Кол-во", type: "number" },
     ],
     values: {
       // Закрытие позиции: длинную продаём, короткую откупаем.
@@ -178,9 +193,12 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
       activeSell: "Акт. продажа",
       orderAccount: "Торговый счет",
       orderInstrument: "Код инструмента",
-      orderSide: "К/П",
-      orderQuantity: "Количество",
-      orderBuyLabel: "Покупка",
+      directionBuyLabel: "Покупка",
+      orderSide: "Операция",
+      orderQuantity: "Кол-во",
+      // В таблице заявок QUIK стоит «Купля», а не «Покупка» — проверено на
+      // выгрузке терминала.
+      orderBuyLabel: "Купля",
       stopAccount: "Торговый счет",
       stopInstrument: "Код инструмента",
     },

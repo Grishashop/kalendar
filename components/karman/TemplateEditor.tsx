@@ -19,6 +19,7 @@ const TYPE_LABELS: Record<ColumnType, string> = {
   number: "Число",
   text: "Текст",
   date: "Дата",
+  digits: "Номер",
 };
 
 /**
@@ -61,7 +62,13 @@ const ROLE_GROUPS: readonly RoleGroup[] = [
       ["activeBuy", "Объём активных заявок на покупку"],
       ["activeSell", "Объём активных заявок на продажу"],
     ],
-    valueFields: [],
+    valueFields: [
+      [
+        "directionBuyLabel",
+        "Значение выражения направления, означающее покупку (не имя колонки)",
+        "Покупка",
+      ],
+    ],
   },
   {
     title: "Активные заявки",
@@ -75,8 +82,8 @@ const ROLE_GROUPS: readonly RoleGroup[] = [
     valueFields: [
       [
         "orderBuyLabel",
-        "Содержимое ячейки стороны, означающее покупку (не имя колонки)",
-        "Покупка",
+        "Содержимое ячейки стороны во вставке заявок, означающее покупку — в QUIK это «Купля»",
+        "Купля",
       ],
     ],
   },

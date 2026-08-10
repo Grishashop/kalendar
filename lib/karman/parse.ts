@@ -73,9 +73,23 @@ export function parseDate(raw: string): Date | null {
   return date.getMonth() === month - 1 && date.getDate() === day ? date : null;
 }
 
+/**
+ * Значение ячейки в том виде, в котором его увидят выражения и проверки.
+ *
+ * Колонка типа «Номер» приезжает из QUIK с разделителями тысяч, если в
+ * настройках буфера выключено «Формальное представление данных»:
+ * `1 892 951 954 619 891 904`. Разделители убираем — иначе номер не пройдёт
+ * проверку и попадёт в транзакцию с пробелами. Числом такой номер сделать
+ * нельзя: девятнадцать знаков не помещаются в точность JavaScript.
+ */
+export function cellText(raw: string, column: TemplateColumn): string {
+  const value = raw.trim();
+  return column.type === "digits" ? value.replace(/[\s\u00A0\u202F\u2007]/g, "") : value;
+}
+
 /** Сообщение о непригодности ячейки, либо null. */
 export function checkCell(raw: string, column: TemplateColumn): string | null {
-  const value = raw.trim();
+  const value = cellText(raw, column);
 
   if (!value) {
     return column.nullable ? null : "пусто";
@@ -86,6 +100,8 @@ export function checkCell(raw: string, column: TemplateColumn): string | null {
     if (!Number.isFinite(num)) return `ожидалось число, а тут «${value}»`;
   } else if (column.type === "date") {
     if (!parseDate(value)) return `ожидалась дата, а тут «${value}»`;
+  } else if (column.type === "digits") {
+    if (!/^\d+$/.test(value)) return `ожидался номер из цифр, а тут «${raw.trim()}»`;
   }
 
   if (column.pattern && !new RegExp(column.pattern).test(value)) {
