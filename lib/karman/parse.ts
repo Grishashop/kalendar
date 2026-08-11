@@ -219,10 +219,24 @@ export function parseClipboard(text: string, template: PasteSpec): ParseResult {
 
   const errors: string[] = [];
   if (cellErrors.length > 0) {
+    // У вставок заявок и стоп-заявок предпросмотра нет: без имён колонок и
+    // значений оператор видит только счётчик и искать ему нечего.
+    const byColumn = new Map<string, { count: number; sample: string }>();
+    for (const issue of cellErrors) {
+      const seen = byColumn.get(issue.column);
+      if (seen) seen.count += 1;
+      else byColumn.set(issue.column, { count: 1, sample: issue.message });
+    }
+    const named = [...byColumn].slice(0, 3);
+    const detail = named
+      .map(([column, { count, sample }]) => `«${column}» — ${sample}${count > 1 ? ` и ещё ${count - 1}` : ""}`)
+      .join("; ");
+    const rest = byColumn.size > named.length ? ` и другие колонки (${byColumn.size - named.length})` : "";
     errors.push(
       `Данные не сходятся с ожидаемыми колонками — не прошло проверку ячеек: ` +
-        `${cellErrors.length}. Похоже на сдвиг колонок, неверный порядок или не тот ` +
-        "разделитель. Проверьте порядок колонок в QUIK и вставьте заново.",
+        `${cellErrors.length}. ${detail}${rest}. Если колонка названа одна и строк ` +
+        "много — поправьте её в редакторе шаблона; если названы почти все — это " +
+        "сдвиг колонок или не тот разделитель, проверьте порядок колонок в QUIK.",
     );
   }
 
