@@ -442,6 +442,14 @@ function reconcile(
   const expectedSell = declared(roles.activeSell);
   if (expectedBuy === null && expectedSell === null) return null;
 
+  // Список написаний: одна и та же настройка QUIK даёт то «Купля», то код «B».
+  const buyLabels = new Set(
+    roles.orderBuyLabel
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean),
+  );
+
   let actualBuy = 0;
   let actualSell = 0;
   for (const i of cancels) {
@@ -451,7 +459,7 @@ function reconcile(
     if (sideAt === undefined || qtyAt === undefined) return null;
     const raw = cells[qtyAt].trim();
     const quantity = raw ? Number(normalizeNumeric(raw)) : 0;
-    if (cells[sideAt].trim() === roles.orderBuyLabel) actualBuy += quantity;
+    if (buyLabels.has(cells[sideAt].trim())) actualBuy += quantity;
     else actualSell += quantity;
   }
 
