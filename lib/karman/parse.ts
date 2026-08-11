@@ -198,15 +198,31 @@ export function parseClipboard(text: string, template: PasteSpec): ParseResult {
     };
   }
 
-  const rowIsValid = (row: string[]) =>
-    template.columns.every((column, index) => checkCell(row[index], column) === null);
+  const failCount = (row: string[]) =>
+    template.columns.reduce(
+      (sum, column, index) => sum + (checkCell(row[index], column) === null ? 0 : 1),
+      0,
+    );
 
   // Строка заголовков распознаётся структурно: имена не проходят типовую
   // проверку, а данные проходят. Это работает и для русской, и для английской шапки.
+  //
+  // Считаем непрошедшие ячейки, а не требуем безупречности остальных строк:
+  // одна незнакомая бумага в сотне строк не должна отключать распознавание
+  // шапки, иначе её шесть ячеек добавят шесть выдуманных ошибок поверх одной
+  // настоящей, и искать оператор будет не там.
+  //
+  // Шапка обязана провалить хотя бы половину колонок и строго больше, чем любая
+  // строка данных. Второе условие важнее первого: при сдвиге колонок все строки
+  // проваливают поровну, шапки нет, и данные останутся на месте.
   let droppedHeader = false;
-  if (rows.length > 1 && !rowIsValid(rows[0]) && rows.slice(1).every(rowIsValid)) {
-    rows = rows.slice(1);
-    droppedHeader = true;
+  if (rows.length > 1) {
+    const headFails = failCount(rows[0]);
+    const worstRest = rows.slice(1).reduce((worst, row) => Math.max(worst, failCount(row)), 0);
+    if (headFails * 2 >= template.columns.length && headFails > worstRest) {
+      rows = rows.slice(1);
+      droppedHeader = true;
+    }
   }
 
   const cellErrors: CellIssue[] = [];

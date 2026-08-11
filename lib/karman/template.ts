@@ -164,14 +164,14 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
       // символов: на FORTS есть USDRUBF, CNYRUBF, IMOEXF.
       { name: "Торговый счет", type: "text", pattern: "^[A-Za-z0-9_-]{6,16}$" },
       { name: "Тек. чист. поз.", type: "number", sortByAbs: true },
-      { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9]{2,12}$" },
+      { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9._-]{2,16}$" },
       { name: "Дата погашения", type: "date" },
       { name: "Акт. покупка", type: "number", nullable: true },
       { name: "Акт. продажа", type: "number", nullable: true },
     ],
     orderColumns: [
       { name: "Торговый счет", type: "text", pattern: "^[A-Za-z0-9_-]{6,16}$" },
-      { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9]{2,12}$" },
+      { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9._-]{2,16}$" },
       // Тип «Номер»: девятнадцать знаков не помещаются в точность JavaScript,
       // а из буфера номер приходит с разделителями тысяч, если в настройках
       // QUIK выключено «Формальное представление данных».
@@ -190,7 +190,7 @@ export const BUILTIN_TEMPLATES: readonly Template[] = [
     ],
     stopColumns: [
       { name: "Торговый счет", type: "text", pattern: "^[A-Za-z0-9_-]{6,16}$" },
-      { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9]{2,12}$" },
+      { name: "Код инструмента", type: "text", pattern: "^[A-Za-z0-9._-]{2,16}$" },
       { name: "Номер стоп-заявки", type: "digits" },
       { name: "Операция", type: "text", pattern: "^(Купля|Продажа|B|S)$" },
       { name: "Кол-во", type: "number" },
