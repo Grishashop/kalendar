@@ -18,6 +18,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatDateMoscow } from "@/lib/date-utils";
+import { AccessPanel } from "@/components/access-panel";
+import { PAGE_LABELS, visiblePages, type AccessSnapshot } from "@/lib/access";
+import { loadSnapshot } from "@/lib/access-db";
 
 interface Trader {
   id: string;
@@ -56,10 +59,11 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   // Главные вкладки панели
   const [mainTab, setMainTab] = useState<"settings" | "tables" | "about">("tables");
   // Вкладки для таблиц
-  const [activeTab, setActiveTab] = useState<"traders" | "dezurstva" | "typ_dezurstva">("traders");
+  const [activeTab, setActiveTab] = useState<"traders" | "dezurstva" | "typ_dezurstva" | "access">("traders");
   const [traders, setTraders] = useState<Trader[]>([]);
   const [duties, setDuties] = useState<Duty[]>([]);
   const [dutyTypes, setDutyTypes] = useState<DutyType[]>([]);
+  const [accessSnapshot, setAccessSnapshot] = useState<AccessSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingItem, setEditingItem] = useState<Trader | Duty | DutyType | Partial<Trader> | Partial<Duty> | Partial<DutyType> | null>(null);
   const [editingTable, setEditingTable] = useState<string | null>(null);
@@ -266,6 +270,14 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           .select("*")
           .order("name_short", { ascending: true });
         if (!error && data) setTraders(data);
+        // Строка «Разделы» на карточке считается той же моделью, что и замок,
+        // а не своим правилом: при режиме «всем вошедшим» открыто каждому,
+        // и перечислять только список было бы ложью.
+        try {
+          setAccessSnapshot(await loadSnapshot(supabase));
+        } catch {
+          setAccessSnapshot(null);
+        }
       } else if (activeTab === "dezurstva") {
         const { data, error } = await supabase
           .from("dezurstva")
@@ -517,6 +529,12 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
 
 
   const renderTable = () => {
+    // Раньше проверки loading: доступ грузится сам и показывает свой индикатор,
+    // иначе поверх него мигал бы скелет таблиц.
+    if (activeTab === "access") {
+      return <AccessPanel />;
+    }
+
     if (loading) {
       return (
         <div className="space-y-3 p-6">
@@ -575,6 +593,16 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
                         <span>Чат: {trader.chat ? "Да" : "Нет"}</span>
                         <span>Заметки: {trader.zametki ? "Да" : "Нет"}</span>
                       </div>
+                      {accessSnapshot && (
+                        // Только для чтения: правится в разделе «Доступ к разделам»,
+                        // чтобы решение про раздел не размазывалось по карточкам.
+                        <p>
+                          Разделы:{" "}
+                          {visiblePages(accessSnapshot, trader.mail ?? null)
+                            .map((page) => PAGE_LABELS[page])
+                            .join(", ") || "нет"}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2 ml-4">
@@ -1298,6 +1326,13 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               onClick={() => setActiveTab("typ_dezurstva")}
             >
               Типы дежурств
+            </Button>
+            <Button
+              variant={activeTab === "access" ? "default" : "ghost"}
+              className="w-full justify-start"
+              onClick={() => setActiveTab("access")}
+            >
+              Доступ к разделам
             </Button>
           </div>
         </div>

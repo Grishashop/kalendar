@@ -17,6 +17,20 @@ import { Notes } from "@/components/notes";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import {
+  OPEN_SNAPSHOT,
+  PAGE_LABELS,
+  visiblePages,
+  type Page,
+} from "@/lib/access";
+import { loadSnapshot } from "@/lib/access-db";
+
+/** Разделы, выведенные кнопками в шапку, в порядке отображения. */
+const HEADER_LINKS: readonly { page: Page; href: string }[] = [
+  { page: "market", href: "/market" },
+  { page: "karman", href: "/karman" },
+];
 
 interface Duty {
   id: string;
@@ -45,6 +59,7 @@ export default function ProtectedPage() {
   const [addDutyDate, setAddDutyDate] = useState<Date | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState(0);
+  const [openPages, setOpenPages] = useState<readonly Page[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -84,10 +99,32 @@ export default function ProtectedPage() {
             });
           }
         }
+
+        // Разделы, открытые этому человеку — кнопки закрытых не рисуем
+        // (docs/adr/0011-dostup-k-razdelam-v-middleware.md).
+        try {
+          const snapshot = await loadSnapshot(supabase);
+          setOpenPages(visiblePages(snapshot, user.email ?? null));
+        } catch {
+          // Таблиц доступа нет — поведение по умолчанию, как до замка.
+          setOpenPages(visiblePages(OPEN_SNAPSHOT, user.email ?? null));
+        }
       }
     };
     checkAuth();
   }, [router]);
+
+  // Отказ от middleware: вошёл, но раздел ему не открыт. Тост, а не страница —
+  // сюда попадают только по прямому адресу, кнопки закрытых разделов не видны.
+  useEffect(() => {
+    const denied = new URLSearchParams(window.location.search).get("accessDenied");
+    if (!denied) return;
+    window.history.replaceState(null, "", "/protected");
+    const label = PAGE_LABELS[denied as Page] ?? denied;
+    toast.error(`Раздел «${label}» вам не открыт`, {
+      description: "Доступ выдаёт администратор.",
+    });
+  }, []);
 
   const handleDayClick = (date: Date, duties: Duty[]) => {
     setSelectedDate(date);
@@ -158,12 +195,17 @@ export default function ProtectedPage() {
 
             {/* Правая часть - переключатель темы и авторизация */}
             <div className="flex items-center gap-3">
-              <Button asChild variant="outline" size="sm">
-                <Link href="/market">Маркет</Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link href="/karman">Карман транзакций</Link>
-              </Button>
+              {/* Кнопки закрытых разделов не рисуем — тот же образец, что
+                  у вкладок «Заметки» и «Чат». «Тикеры» в шапку не выведены
+                  (ссылки на них не было и до замка): чтобы добавить, достаточно
+                  вписать раздел в HEADER_LINKS. */}
+              {HEADER_LINKS.filter(({ page }) => openPages.includes(page)).map(
+                ({ page, href }) => (
+                  <Button key={page} asChild variant="outline" size="sm">
+                    <Link href={href}>{PAGE_LABELS[page]}</Link>
+                  </Button>
+                ),
+              )}
               <ThemeSwitcher />
               <AuthButtonClient />
             </div>

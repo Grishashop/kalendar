@@ -17,6 +17,9 @@ import { toast } from "sonner";
 const PROTECTED_ROUTE_LABELS: Record<string, string> = {
   "/ticker": "Тикеры",
   "/karman": "Карман транзакций",
+  // «Маркет» попадает сюда, только когда админ снял с него публичный режим
+  // (docs/adr/0011-dostup-k-razdelam-v-middleware.md).
+  "/market": "Маркет",
 };
 
 interface Trader {

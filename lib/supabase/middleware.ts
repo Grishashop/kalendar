@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasEnvVars } from "../utils";
+import { getSnapshot, verdictForPath } from "../access";
+import { loadSnapshot } from "../access-db";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -47,24 +49,53 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
+  // Разделы «Маркет», «Карман» и «Тикеры» закрыты режимом доступа, который
+  // администратор правит в базе (docs/adr/0011-dostup-k-razdelam-v-middleware.md).
+  // Проверка идёт раньше общего правила входа: у «Маркета» есть публичный режим,
+  // и общее правило про него ничего не знает.
+  const pathname = request.nextUrl.pathname;
+  const email = typeof user?.email === "string" ? user.email : null;
+  const pages = verdictForPath(
+    await getSnapshot(() => loadSnapshot(supabase)),
+    pathname,
+    email,
+  );
+
+  if (pages.page !== null) {
+    if (pages.verdict === "allow") return supabaseResponse;
+
+    const url = request.nextUrl.clone();
+    url.search = "";
+    if (pages.verdict === "needLogin") {
+      // Анониму нужен вход, а не доступ: ведём на главную, где живёт кнопка
+      // «Войти», существующим механизмом.
+      url.pathname = "/";
+      url.searchParams.set("loginRequired", pathname);
+    } else {
+      // Вошедшему вход не поможет. Ведём в его рабочее пространство, а не на
+      // «/»: главная всё равно перебросила бы его туда, дав два прыжка.
+      url.pathname = "/protected";
+      url.searchParams.set("accessDenied", pages.page);
+    }
+    return NextResponse.redirect(url);
+  }
+
   if (
-    request.nextUrl.pathname !== "/" &&
+    pathname !== "/" &&
     !user &&
-    !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth") &&
-    !request.nextUrl.pathname.startsWith("/temp-calendar") &&
-    !request.nextUrl.pathname.startsWith("/api/temp-calendar") &&
-    !request.nextUrl.pathname.startsWith("/market") &&
-    // Статическая презентация "Маркета" для коллег — публичная ссылка,
-    // без входа (public/presentation/index.html).
-    !request.nextUrl.pathname.startsWith("/presentation") &&
-    !request.nextUrl.pathname.startsWith("/api/market")
+    !pathname.startsWith("/login") &&
+    !pathname.startsWith("/auth") &&
+    !pathname.startsWith("/temp-calendar") &&
+    !pathname.startsWith("/api/temp-calendar") &&
+    // Статическая презентация «Маркета» для коллег — публичная ссылка,
+    // без входа (public/presentation/index.html), вне механизма доступа.
+    !pathname.startsWith("/presentation")
   ) {
     // no user — отправляем на главную (просмотровый режим),
     // а не на форму входа. Логин доступен по кнопке "Войти".
     const url = request.nextUrl.clone();
     url.pathname = "/";
-    url.searchParams.set("loginRequired", request.nextUrl.pathname);
+    url.searchParams.set("loginRequired", pathname);
     return NextResponse.redirect(url);
   }
 

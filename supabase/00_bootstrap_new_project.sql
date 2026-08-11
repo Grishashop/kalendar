@@ -4,6 +4,7 @@
 --
 -- Порядок важен из-за внешних ключей:
 --   traders -> typ_dezurstva -> dezurstva -> note_folders -> notes -> chat_messages
+--   page_access -> page_access_trader (ссылается на traders)
 --
 -- Как использовать:
 --   1. Откройте новый проект в Supabase Dashboard -> SQL Editor
@@ -308,7 +309,60 @@ CREATE POLICY "Allow authors to delete their own messages"
 ON chat_messages FOR DELETE TO authenticated USING (true);
 
 -- ============================================
--- 7. Включаем Realtime для таблиц, которые его используют
+-- 7. page_access + page_access_trader (доступ к разделам)
+-- ============================================
+-- Полная версия с пояснениями — supabase/page_access.sql,
+-- решение — docs/adr/0011-dostup-k-razdelam-v-middleware.md
+CREATE TABLE IF NOT EXISTS page_access (
+  page TEXT PRIMARY KEY CHECK (page IN ('market', 'karman', 'ticker')),
+  mode TEXT NOT NULL CHECK (mode IN ('public', 'authenticated', 'list')),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT page_access_public_only_market CHECK (mode <> 'public' OR page = 'market')
+);
+
+CREATE TRIGGER update_page_access_updated_at
+  BEFORE UPDATE ON page_access
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+INSERT INTO page_access (page, mode) VALUES
+  ('market', 'public'),
+  ('karman', 'authenticated'),
+  ('ticker', 'authenticated')
+ON CONFLICT (page) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS page_access_trader (
+  page TEXT NOT NULL REFERENCES page_access(page) ON DELETE CASCADE,
+  trader_id BIGINT NOT NULL REFERENCES traders(id) ON DELETE CASCADE,
+  PRIMARY KEY (page, trader_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_access_trader_page ON page_access_trader(page);
+
+ALTER TABLE page_access ENABLE ROW LEVEL SECURITY;
+ALTER TABLE page_access_trader ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow all users to read page_access"
+ON page_access FOR SELECT USING (true);
+
+CREATE POLICY "Allow all users to read page_access_trader"
+ON page_access_trader FOR SELECT USING (true);
+
+CREATE POLICY "Allow admins to update page_access"
+ON page_access FOR UPDATE TO authenticated
+USING (EXISTS (SELECT 1 FROM traders AS admin_check WHERE admin_check.mail = get_user_email() AND admin_check.admin = true))
+WITH CHECK (EXISTS (SELECT 1 FROM traders AS admin_check WHERE admin_check.mail = get_user_email() AND admin_check.admin = true));
+
+CREATE POLICY "Allow admins to insert page_access_trader"
+ON page_access_trader FOR INSERT TO authenticated
+WITH CHECK (EXISTS (SELECT 1 FROM traders AS admin_check WHERE admin_check.mail = get_user_email() AND admin_check.admin = true));
+
+CREATE POLICY "Allow admins to delete page_access_trader"
+ON page_access_trader FOR DELETE TO authenticated
+USING (EXISTS (SELECT 1 FROM traders AS admin_check WHERE admin_check.mail = get_user_email() AND admin_check.admin = true));
+
+-- ============================================
+-- 8. Включаем Realtime для таблиц, которые его используют
 -- ============================================
 ALTER PUBLICATION supabase_realtime ADD TABLE dezurstva;
 ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages;
