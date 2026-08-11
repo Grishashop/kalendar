@@ -95,16 +95,29 @@ export function AccessPanel() {
     load();
   }, [load]);
 
+  /**
+   * Отказ RLS в `UPDATE` и `DELETE` не приходит ошибкой: политика отфильтровывает
+   * строки, изменяется ноль строк, и PostgREST отвечает успехом. Поэтому просим
+   * вернуть изменённые строки и трактуем пустой ответ как отказ — иначе экран
+   * говорил бы «сохранено», не сохранив ничего. Проверено анонимным PATCH:
+   * http=204 при неизменённых данных.
+   */
+  const NOT_ADMIN = "изменение отклонено. Права администратора не подтверждены.";
+
   const changeMode = async (page: Page, mode: AccessMode) => {
     setSaving(`mode:${page}`);
     const supabase = createClient();
-    const { error: updateError } = await supabase
+    const { data, error: updateError } = await supabase
       .from("page_access")
       .update({ mode })
-      .eq("page", page);
+      .eq("page", page)
+      .select("page");
     setSaving(null);
-    if (updateError) {
-      setError(`Не удалось сменить режим «${PAGE_LABELS[page]}»: ${updateError.message}`);
+    if (updateError || !data || data.length === 0) {
+      setError(
+        `Режим «${PAGE_LABELS[page]}» не изменён: ${updateError?.message ?? NOT_ADMIN}`,
+      );
+      await load();
       return;
     }
     setError(null);
@@ -114,16 +127,23 @@ export function AccessPanel() {
   const toggleTrader = async (page: Page, traderId: number, on: boolean) => {
     setSaving(`trader:${page}:${traderId}`);
     const supabase = createClient();
-    const { error: writeError } = on
-      ? await supabase.from("page_access_trader").insert({ page, trader_id: traderId })
+    const { data, error: writeError } = on
+      ? await supabase
+          .from("page_access_trader")
+          .insert({ page, trader_id: traderId })
+          .select("page")
       : await supabase
           .from("page_access_trader")
           .delete()
           .eq("page", page)
-          .eq("trader_id", traderId);
+          .eq("trader_id", traderId)
+          .select("page");
     setSaving(null);
-    if (writeError) {
-      setError(`Не удалось изменить список «${PAGE_LABELS[page]}»: ${writeError.message}`);
+    if (writeError || !data || data.length === 0) {
+      setError(
+        `Список «${PAGE_LABELS[page]}» не изменён: ${writeError?.message ?? NOT_ADMIN}`,
+      );
+      await load();
       return;
     }
     setError(null);
