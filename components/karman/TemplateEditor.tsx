@@ -77,13 +77,19 @@ const ROLE_GROUPS: readonly RoleGroup[] = [
       ["orderAccount", "Торговый счёт"],
       ["orderInstrument", "Инструмент"],
       ["orderSide", "Сторона заявки"],
-      ["orderQuantity", "Объём заявки"],
+      ["orderQuantity", "Остаток — незакрытая часть заявки"],
+      ["orderStatus", "Состояние заявки"],
     ],
     valueFields: [
       [
         "orderBuyLabel",
-        "Содержимое ячейки стороны во вставке заявок, означающее покупку — в QUIK это «Купля»",
-        "Купля",
+        "Значения стороны, означающие покупку, через запятую — «Купля» или код «B»",
+        "Купля, B",
+      ],
+      [
+        "orderActiveStatus",
+        "Значения состояния, означающие живую заявку, через запятую",
+        "ACTIVE, Активна",
       ],
     ],
   },
@@ -93,8 +99,15 @@ const ROLE_GROUPS: readonly RoleGroup[] = [
     columnFields: [
       ["stopAccount", "Торговый счёт"],
       ["stopInstrument", "Инструмент"],
+      ["stopStatus", "Состояние стоп-заявки"],
     ],
-    valueFields: [],
+    valueFields: [
+      [
+        "stopActiveStatus",
+        "Значения состояния, означающие живую стоп-заявку, через запятую",
+        "ACTIVE, Активна",
+      ],
+    ],
   },
 ];
 

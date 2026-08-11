@@ -614,6 +614,8 @@ export function Generator() {
               stopRowCount={parsedStops.rows.length}
               orphanOrders={plan.orphanOrders.length}
               orphanStops={plan.orphanStops.length}
+              inactiveOrders={plan.inactiveOrders.length}
+              inactiveStops={plan.inactiveStops.length}
               reconcileGaps={plan.positions
                 .filter((item) => item.reconcile)
                 .map((item) => `${item.account} · ${item.instrument}: ${item.reconcile}`)}
@@ -785,6 +787,8 @@ function Summary({
   stopRowCount,
   orphanOrders,
   orphanStops,
+  inactiveOrders,
+  inactiveStops,
   reconcileGaps,
   onToggleInstrument,
   onToggleAll,
@@ -795,6 +799,8 @@ function Summary({
   stopRowCount: number;
   orphanOrders: number;
   orphanStops: number;
+  inactiveOrders: number;
+  inactiveStops: number;
   reconcileGaps: string[];
   onToggleInstrument: (rows: readonly number[], on: boolean) => void;
   onToggleAll: (on: boolean) => void;
@@ -850,6 +856,7 @@ function Summary({
             <dt className="w-36 shrink-0 text-zinc-500">Снятие заявок</dt>
             <dd className="tabular-nums">
               {stats.cancels} {plural(stats.cancels, ORDER)}
+              {inactiveOrders > 0 && ` · исполнено или снято: ${inactiveOrders}`}
               {orphanOrders > 0 && ` · без позиции: ${orphanOrders}`}
             </dd>
           </div>
@@ -861,7 +868,9 @@ function Summary({
               {stopRowCount === 0 ? (
                 <span className="text-amber-600 dark:text-amber-400">вставка пуста</span>
               ) : (
-                `${stats.stopCancels} на снятие${orphanStops > 0 ? ` · без позиции: ${orphanStops}` : ""}`
+                `${stats.stopCancels} на снятие` +
+                (inactiveStops > 0 ? ` · исполнено или снято: ${inactiveStops}` : "") +
+                (orphanStops > 0 ? ` · без позиции: ${orphanStops}` : "")
               )}
             </dd>
           </div>

@@ -233,6 +233,9 @@ export interface Plan {
   /** Строки вставки заявок, не привязанные ни к одной позиции. */
   orphanOrders: number[];
   orphanStops: number[];
+  /** Строки, отброшенные по состоянию: исполненные и снятые заявки. */
+  inactiveOrders: number[];
+  inactiveStops: number[];
   templateError: string | null;
 }
 
@@ -245,7 +248,14 @@ export function buildPlan(input: PlanInput): Plan {
   const { template, rows, orderRows, stopRows, market } = input;
   const compiled = compileTemplate(template);
   if (compiled.error) {
-    return { positions: [], orphanOrders: [], orphanStops: [], templateError: compiled.error };
+    return {
+      positions: [],
+      orphanOrders: [],
+      orphanStops: [],
+      inactiveOrders: [],
+      inactiveStops: [],
+      templateError: compiled.error,
+    };
   }
 
   const roles = template.roles;
@@ -259,18 +269,47 @@ export function buildPlan(input: PlanInput): Plan {
     return at === undefined ? "" : cells[at].trim();
   };
 
+  // Снимать имеет смысл только живые заявки: исполненная и снятая ничего не
+  // связывают, а их объём не входит в «Акт. покупка» и «Акт. продажа», так что
+  // сверка сошлась бы только по активным.
+  const activeStatuses = new Set(
+    roles.orderActiveStatus
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean),
+  );
+  const inactiveOrders: number[] = [];
+
   // Заявки и стоп-заявки заранее раскладываем по паре «счёт + инструмент»:
   // одна позиция может быть заблокирована несколькими заявками.
   const ordersByPair = new Map<string, number[]>();
   orderRows.forEach((cells, i) => {
+    const status = text(compiled.orderIndex, template.orderColumns, cells, roles.orderStatus);
+    if (status && !activeStatuses.has(status)) {
+      inactiveOrders.push(i);
+      return;
+    }
     const key = pairKey(
       text(compiled.orderIndex, template.orderColumns, cells, roles.orderAccount),
       text(compiled.orderIndex, template.orderColumns, cells, roles.orderInstrument),
     );
     ordersByPair.set(key, [...(ordersByPair.get(key) ?? []), i]);
   });
+  const activeStopStatuses = new Set(
+    roles.stopActiveStatus
+      .split(",")
+      .map((label) => label.trim())
+      .filter(Boolean),
+  );
+  const inactiveStops: number[] = [];
+
   const stopsByPair = new Map<string, number[]>();
   stopRows.forEach((cells, i) => {
+    const status = text(compiled.stopIndex, template.stopColumns, cells, roles.stopStatus);
+    if (status && !activeStopStatuses.has(status)) {
+      inactiveStops.push(i);
+      return;
+    }
     const key = pairKey(
       text(compiled.stopIndex, template.stopColumns, cells, roles.stopAccount),
       text(compiled.stopIndex, template.stopColumns, cells, roles.stopInstrument),
@@ -412,8 +451,14 @@ export function buildPlan(input: PlanInput): Plan {
 
   return {
     positions,
-    orphanOrders: orderRows.map((_, i) => i).filter((i) => !usedOrders.has(i)),
-    orphanStops: stopRows.map((_, i) => i).filter((i) => !usedStops.has(i)),
+    orphanOrders: orderRows
+      .map((_, i) => i)
+      .filter((i) => !usedOrders.has(i) && !inactiveOrders.includes(i)),
+    inactiveOrders,
+    orphanStops: stopRows
+      .map((_, i) => i)
+      .filter((i) => !usedStops.has(i) && !inactiveStops.includes(i)),
+    inactiveStops,
     templateError: null,
   };
 }
