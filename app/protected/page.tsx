@@ -116,13 +116,18 @@ export default function ProtectedPage() {
 
   // Отказ от middleware: вошёл, но раздел ему не открыт. Тост, а не страница —
   // сюда попадают только по прямому адресу, кнопки закрытых разделов не видны.
+  //
+  // Тост висит до закрытия вручную, а не четыре секунды по умолчанию: человек
+  // нажал Enter в адресной строке и оказался не там, где хотел, — если
+  // объяснение погаснет само, он останется с необъяснимым прыжком страницы.
   useEffect(() => {
     const denied = new URLSearchParams(window.location.search).get("accessDenied");
     if (!denied) return;
     window.history.replaceState(null, "", "/protected");
     const label = PAGE_LABELS[denied as Page] ?? denied;
     toast.error(`Раздел «${label}» вам не открыт`, {
-      description: "Доступ выдаёт администратор.",
+      description: "Доступ выдаёт администратор. Вас вернуло на календарь.",
+      duration: Infinity,
     });
   }, []);
 
