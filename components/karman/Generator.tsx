@@ -287,6 +287,27 @@ export function Generator() {
     parsed.rows.length === 0 ||
     (cancelOrders && parsedOrders.errors.length > 0) ||
     (cancelStops && parsedStops.errors.length > 0);
+
+  // Просили лимитную, а строка ушла рыночной. Группируем по причине с тикерами:
+  // подсветка в таблице говорит «смотри сюда», а это — «вот что и почему»,
+  // не заставляя листать пятьдесят строк.
+  const marketFallback = useMemo(() => {
+    if (mode !== "limit" || !plan) return { rows: 0, groups: [] as { reason: string; tickers: string[] }[] };
+    const byReason = new Map<string, string[]>();
+    let rows = 0;
+    plan.positions.forEach((item) => {
+      if (item.error || !enabled[item.index]) return;
+      if (item.priceType !== "market") return;
+      rows += 1;
+      const reason = item.priceReason ?? "причина неизвестна";
+      const list = byReason.get(reason) ?? [];
+      // Тикеры без повторов: одна серия встречается на нескольких счетах,
+      // и перечислять её пять раз значит спрятать остальные.
+      if (!list.includes(item.instrument)) list.push(item.instrument);
+      byReason.set(reason, list);
+    });
+    return { rows, groups: [...byReason].map(([reason, tickers]) => ({ reason, tickers })) };
+  }, [mode, plan, enabled]);
   const selectedCount = enabled.filter(Boolean).length;
   // Сколько строк отбито проверкой и по каким причинам — чтобы выключенная
   // кнопка называла причину, а не молчала.
@@ -493,6 +514,25 @@ export function Generator() {
             Проверка контрактов не выполнена: {contractsError}.
           </p>
         )}
+
+        {/* Подсветка в таблице говорит «смотри сюда», а этот блок — «что именно
+            и почему», не заставляя листать пятьдесят строк. Отдельная плашка,
+            а не строка в сводке: просили лимитную, получили другое исполнение. */}
+        {marketFallback.rows > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+            <p className="font-medium">
+              Рыночными вместо лимитных: {marketFallback.rows}{" "}
+              {plural(marketFallback.rows, ORDER)} — цену определит биржа.
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {marketFallback.groups.map((group) => (
+                <li key={group.reason} className="font-mono text-xs">
+                  {group.reason}: {group.tickers.join(", ")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       {parsed && plan && (
@@ -624,11 +664,28 @@ export function Generator() {
                         >
                           {item ? (VERDICT_LABELS[item.check.verdict] ?? "") : ""}
                         </td>
-                        <td className="p-2 text-xs">
+                        {/* Просили лимитную, а строка ушла рыночной — это другое
+                            исполнение, а не оттенок. В прежнем виде «рыночная»
+                            стояла тем же серым, что «лимитная», и восемь строк
+                            из пятидесяти двух не бросались в глаза.
+                            В рыночном режиме не подсвечиваем: там так задумано. */}
+                        <td
+                          className={`p-2 text-xs ${
+                            mode === "limit" && item?.priceType === "market"
+                              ? "bg-amber-100 font-medium text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                              : ""
+                          }`}
+                          title={item?.priceReason ?? undefined}
+                        >
                           {item?.priceType === "limit" ? "лимитная" : "рыночная"}
+                          {mode === "limit" && item?.priceType === "market" && " !"}
                         </td>
                         <td
-                          className="p-2 text-right font-mono text-xs tabular-nums"
+                          className={`p-2 text-right font-mono text-xs tabular-nums ${
+                            mode === "limit" && item?.priceType === "market"
+                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                              : ""
+                          }`}
                           title={item?.priceReason ?? undefined}
                         >
                           {item?.price ?? "—"}
@@ -662,6 +719,7 @@ export function Generator() {
               cancelOrders={cancelOrders}
               cancelStops={cancelStops}
               stopRowCount={parsedStops.rows.length}
+              limitMode={mode === "limit"}
               orphanOrders={plan.orphanOrders.length}
               orphanStops={plan.orphanStops.length}
               inactiveOrders={plan.inactiveOrders.length}
@@ -877,6 +935,7 @@ function Summary({
   stats,
   cancelOrders,
   cancelStops,
+  limitMode,
   stopRowCount,
   orphanOrders,
   orphanStops,
@@ -890,6 +949,8 @@ function Summary({
   cancelOrders: boolean;
   cancelStops: boolean;
   stopRowCount: number;
+  /** Лимитный режим: рыночные заявки в сводке становятся отступлением. */
+  limitMode: boolean;
   orphanOrders: number;
   orphanStops: number;
   inactiveOrders: number;
@@ -932,7 +993,18 @@ function Summary({
         <div className="flex gap-2">
           <dt className="w-36 shrink-0 text-zinc-500">Тип заявок</dt>
           <dd className="tabular-nums">
-            лимитных {stats.limitOrders} · рыночных {stats.marketOrders}
+            лимитных {stats.limitOrders} ·{" "}
+            {/* В лимитном режиме рыночная заявка — отступление от того, что просили,
+                и в сводке она обязана выделяться, а не стоять рядом как равная. */}
+            <span
+              className={
+                limitMode && stats.marketOrders > 0
+                  ? "font-medium text-amber-600 dark:text-amber-400"
+                  : ""
+              }
+            >
+              рыночных {stats.marketOrders}
+            </span>
           </dd>
         </div>
         {stats.largest && (
