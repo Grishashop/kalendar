@@ -271,6 +271,17 @@ export function Generator() {
     (cancelOrders && parsedOrders.errors.length > 0) ||
     (cancelStops && parsedStops.errors.length > 0);
   const selectedCount = enabled.filter(Boolean).length;
+  // Сколько строк отбито проверкой и по каким причинам — чтобы выключенная
+  // кнопка называла причину, а не молчала.
+  const blockedRows =
+    plan?.positions.filter((item) => BLOCKING_VERDICTS.has(item.check.verdict)).length ?? 0;
+  const blockedSummary = [
+    ...new Map(
+      (plan?.positions ?? [])
+        .filter((item) => BLOCKING_VERDICTS.has(item.check.verdict))
+        .map((item) => [item.check.verdict, VERDICT_LABELS[item.check.verdict] ?? item.check.verdict]),
+    ).values(),
+  ].join(", ");
   const allSelected = enabled.length > 0 && selectedCount === enabled.length;
   const quoteAge = quotesAt === null ? null : Math.round((Date.now() - quotesAt) / 1000);
 
@@ -652,6 +663,19 @@ export function Generator() {
           >
             Сгенерировать транзакции
           </Button>
+          {/* Выключенная кнопка без объяснения читается как поломка: человек
+              жмёт, ничего не происходит, и он идёт разбираться не туда.
+              Причин ровно три, и каждая называется своим текстом. */}
+          {(blocked || selectedCount === 0) && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {blocked
+                ? "Генерация недоступна: во вставке есть ошибки — исправьте их выше."
+                : blockedRows > 0 && blockedRows === plan.positions.length
+                  ? `Генерация недоступна: ни одна строка не прошла проверку (${blockedSummary}). ` +
+                    "Отметить строку можно вручную, но сначала убедитесь, что серия та."
+                  : "Генерация недоступна: не отмечено ни одной строки."}
+            </p>
+          )}
         </section>
       )}
 
