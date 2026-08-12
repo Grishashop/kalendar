@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { loadContracts } from "@/lib/karman/contracts";
 
 export async function GET(request: Request) {
-  const secids = new URL(request.url).searchParams.get("secids") ?? "";
+  const params = new URL(request.url).searchParams;
+  const secids = params.get("secids") ?? "";
+  // Уточнение поставочности по карточкам стоит до восьми секунд и запрашивается
+  // только там, где данные грузятся всё равно, — в лимитном режиме.
+  const refine = params.get("refine") === "1";
   const codes = secids
     .split(",")
     .map((code) => code.trim())
@@ -12,7 +16,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const contracts = await loadContracts(codes);
+    const contracts = await loadContracts(codes, refine);
     return NextResponse.json(contracts);
   } catch (error) {
     if (error instanceof Error && error.message === "iss_unavailable") {

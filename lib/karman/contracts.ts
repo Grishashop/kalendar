@@ -221,8 +221,17 @@ async function refineDeliverable(index: FortsIndex, sampleByAsset: Map<string, s
 /**
  * Справка по каждому запрошенному коду; null — такого контракта в FORTS нет.
  * Бросает Error("iss_unavailable"), если ISS недоступен.
+ *
+ * `refine` включает уточнение поставочности по карточкам инструментов. Оно стоит
+ * до восьми секунд, а даёт один случай из 187 (см. правило дат ниже), поэтому
+ * в пути по умолчанию его нет: список FORTS отвечает за две десятых секунды и
+ * уже несёт проверку серии. Уточнение запрашивается в лимитном режиме, где
+ * данные грузятся всё равно.
  */
-export async function loadContracts(secids: readonly string[]): Promise<Record<string, ContractInfo | null>> {
+export async function loadContracts(
+  secids: readonly string[],
+  refine = false,
+): Promise<Record<string, ContractInfo | null>> {
   const today = MOSCOW_DAY.format(new Date());
   const index = await fortsIndex(today);
 
@@ -231,7 +240,7 @@ export async function loadContracts(secids: readonly string[]): Promise<Record<s
     const row = index.bySecid.get(secid);
     if (row) sampleByAsset.set(row.assetCode, row.secid);
   }
-  await refineDeliverable(index, sampleByAsset);
+  if (refine) await refineDeliverable(index, sampleByAsset);
 
   // Ближайшая серия считается один раз на актив и не зависит от поставочности:
   // это два независимых факта, и смешивать их значит терять один при незнании другого.

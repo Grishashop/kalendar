@@ -145,27 +145,43 @@ export function Generator() {
     return [...new Set(parsed.rows.map((cells) => cells[at].trim()).filter(Boolean))].sort();
   }, [parsed, template]);
 
+  /**
+   * `withPrices` разделяет два разных намерения. Без него грузится только список
+   * FORTS — проверка серии за две десятых секунды, единственное, что стоит между
+   * пачкой и закрытием не той серии. С ним добавляются котировки Alor и
+   * уточнение поставочности по карточкам, которое стоит до восьми секунд.
+   *
+   * Рыночной заявке цены не нужны вовсе: она уходит с нулём, планку применяет
+   * биржа. Поэтому падение Alor или ISS больше не останавливает генерацию.
+   */
   const refreshMarket = useCallback(
-    async (secids: readonly string[]) => {
+    async (secids: readonly string[], withPrices: boolean) => {
       if (secids.length === 0) return;
       setLoadingMarket(true);
-      const [reference, quote] = await Promise.all([loadContracts(secids), loadQuotes(secids)]);
+      const [reference, quote] = await Promise.all([
+        loadContracts(secids, withPrices),
+        withPrices ? loadQuotes(secids) : null,
+      ]);
       setContracts(reference.contracts);
       setContractsLoaded(reference.loaded);
       setContractsError(reference.error);
-      setQuotes(quote.quotes);
-      setQuotesError(quote.error);
-      setQuotesAt(quote.loaded ? quote.at : null);
+      if (quote) {
+        setQuotes(quote.quotes);
+        setQuotesError(quote.error);
+        setQuotesAt(quote.loaded ? quote.at : null);
+      }
       setLoadingMarket(false);
     },
     [],
   );
 
-  // Разобрали таблицу — цены нужны сразу: вставка позиций и есть намерение их получить.
+  // Вставили таблицу — проверяем серию. Котировки ждут переключения в лимитный
+  // режим: рыночной заявке они не нужны, а запрос стоит времени и токена.
   const instrumentKey = instruments.join(",");
+  const wantPrices = mode === "limit";
   useEffect(() => {
-    void refreshMarket(instrumentKey ? instrumentKey.split(",") : []);
-  }, [instrumentKey, refreshMarket]);
+    void refreshMarket(instrumentKey ? instrumentKey.split(",") : [], wantPrices);
+  }, [instrumentKey, wantPrices, refreshMarket]);
 
   const market = useMemo(() => {
     const result: Record<string, MarketRow> = {};
@@ -430,17 +446,26 @@ export function Generator() {
           <Button
             variant="outline"
             size="sm"
-            disabled={loadingMarket || instruments.length === 0}
-            onClick={() => void refreshMarket(instruments)}
+            // В рыночном режиме котировки не нужны: заявка уходит с нулевой ценой,
+            // планку применяет биржа. Кнопка живая только там, где цена строится.
+            disabled={loadingMarket || instruments.length === 0 || mode !== "limit"}
+            onClick={() => void refreshMarket(instruments, true)}
           >
             <RefreshCw /> Обновить котировки
           </Button>
           <span className="text-xs text-zinc-500">
+            {/* Проверка серии приезжает после таблицы. Пока она в пути, строки
+                стоят с вердиктом «—» и все отмечены: без индикатора это выглядит
+                как «проверено, всё чисто», и можно сгенерировать не ту серию. */}
             {loadingMarket
-              ? "загрузка…"
-              : quoteAge === null
-                ? "котировок нет"
-                : `обновлено ${quoteAge} с назад`}
+              ? mode === "limit"
+                ? "загрузка котировок…"
+                : "проверка серии…"
+              : mode !== "limit"
+                ? "рыночная заявка: цену определит биржа"
+                : quoteAge === null
+                  ? "котировок нет"
+                  : `обновлено ${quoteAge} с назад`}
           </span>
         </div>
 

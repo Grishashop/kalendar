@@ -36,11 +36,20 @@ interface AlorQuote {
 
 const NETWORK_ERROR = "сеть недоступна";
 
-export async function loadContracts(secids: readonly string[]): Promise<ContractsResult> {
+/**
+ * `refine` просит уточнить поставочность по карточкам инструментов. Оно стоит до
+ * восьми секунд и нужно только там, где данные грузятся всё равно, — в лимитном
+ * режиме. Список FORTS с проверкой серии приезжает в обоих случаях.
+ */
+export async function loadContracts(
+  secids: readonly string[],
+  refine = false,
+): Promise<ContractsResult> {
   if (secids.length === 0) return { contracts: {}, loaded: true, error: null };
 
   try {
-    const response = await fetch(`/api/karman/contracts?secids=${encodeURIComponent(secids.join(","))}`);
+    const query = `secids=${encodeURIComponent(secids.join(","))}${refine ? "&refine=1" : ""}`;
+    const response = await fetch(`/api/karman/contracts?${query}`);
     if (!response.ok) {
       return {
         contracts: {},
