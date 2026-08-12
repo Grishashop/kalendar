@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardPaste, Copy, RefreshCw, Settings2 } from "lucide-react";
+import { ClipboardPaste, Copy, Download, RefreshCw, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,6 +17,7 @@ import { loadContracts, loadQuotes } from "@/lib/karman/market";
 import type { ContractInfo } from "@/lib/karman/contracts";
 import type { OrderMode, Quote } from "@/lib/karman/pricing";
 import { computeStats, type Stats } from "@/lib/karman/stats";
+import { toWindows1251, triFileName } from "@/lib/karman/tri";
 import {
   BUILTIN_TEMPLATES,
   isTemplateModified,
@@ -469,6 +470,19 @@ export function Generator() {
           </span>
         </div>
 
+        {/* Настоящего прогресса нет: сколько осталось, зависит от того, насколько
+            сейчас тормозит ISS или Alor. Полоса неопределённая — она говорит
+            «работаю», а не рисует выдуманные проценты. */}
+        {loadingMarket && (
+          <div
+            role="progressbar"
+            aria-label={mode === "limit" ? "Загрузка котировок" : "Проверка серии"}
+            className="h-1 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+          >
+            <div className="animate-indeterminate h-full w-2/5 rounded-full bg-zinc-500 dark:bg-zinc-400" />
+          </div>
+        )}
+
         {quotesError && (
           <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
             Котировки недоступны: {quotesError}. Доступен только рыночный режим.
@@ -741,13 +755,43 @@ export function Generator() {
               <Copy /> Копировать в буфер
             </Button>
             {/*
-              Проверено на выгрузке терминала: QUIK пишет tri-файл в ANSI
-              (windows-1251). Ловушка не в QUIK, а в Блокноте: новый файл он
-              создаёт в UTF-8, и кодировку надо переключить вручную.
+              Кнопка пишет байты сама, поэтому Блокнот из цепочки исчезает —
+              вместе с его ловушкой: новый файл он создаёт в UTF-8, а QUIK
+              tri-файлы читает только в ANSI (windows-1251). Проверено на
+              выгрузке самого терминала.
             */}
+            <Button
+              variant="outline"
+              onClick={() => {
+                const { bytes, unmapped } = toWindows1251(output.text);
+                if (unmapped.length > 0) {
+                  // Молча подставить «?» нельзя: это правка поля транзакции.
+                  toast.error("В тексте есть символы вне кодировки QUIK", {
+                    description: `Уберите их в шаблоне: ${unmapped.join(" ")}`,
+                    duration: Infinity,
+                  });
+                  return;
+                }
+                const name = triFileName();
+                const url = URL.createObjectURL(
+                  new Blob([bytes as BlobPart], { type: "application/octet-stream" }),
+                );
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = name;
+                link.click();
+                URL.revokeObjectURL(url);
+                toast.success(`Сохранено: ${name}`, {
+                  description: "Кодировка ANSI — файл готов к загрузке в карман QUIK.",
+                });
+              }}
+            >
+              <Download /> Скачать .tri
+            </Button>
             <span className="text-xs text-zinc-500">
-              Сохраняйте файл в кодировке ANSI: Файл → Сохранить как → Кодировка. Блокнот создаёт
-              новые файлы в UTF-8, а сам QUIK пишет tri-файлы в ANSI.
+              Файл пишется в ANSI (windows-1251) — той же кодировке, в которой tri-файлы пишет сам
+              QUIK. При копировании через буфер и сохранении Блокнотом кодировку надо переключать
+              вручную: Файл → Сохранить как → Кодировка.
             </span>
           </div>
         </section>

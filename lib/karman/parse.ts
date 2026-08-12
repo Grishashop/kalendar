@@ -111,12 +111,22 @@ export function checkCell(raw: string, column: TemplateColumn): string | null {
   return null;
 }
 
-/** Колонка подписей строк QUIK: значения идут 1, 2, 3 … (шапка, если есть, пустая). */
-function looksLikeIndexColumn(rows: string[][]): boolean {
+/**
+ * Колонка подписей строк QUIK: значения идут 1, 2, 3 … (шапка, если есть, пустая).
+ *
+ * Для единственной строки последовательности нет, и «1» само по себе ничего не
+ * доказывает — решает состав: колонок ровно на одну больше объявленного. Без
+ * этой ветки вставка одной позиции из QUIK упиралась в «Ожидалось 6 колонок,
+ * получено 7», хотя пользователь вставил ровно то, что дал терминал.
+ */
+function looksLikeIndexColumn(rows: string[][], expected: number): boolean {
   const values = rows.map((row) => row[0].trim());
   const start = /^\d+$/.test(values[0]) ? 0 : 1;
-  if (values.length - start < 2) return false;
-  return values.slice(start).every((value, offset) => value === String(offset + 1));
+  const numbered = values.slice(start);
+  if (numbered.length === 0) return false;
+  if (!numbered.every((value, offset) => value === String(offset + 1))) return false;
+  if (numbered.length >= 2) return true;
+  return rows[0].length === expected + 1;
 }
 
 export function parseClipboard(text: string, template: PasteSpec): ParseResult {
@@ -169,7 +179,7 @@ export function parseClipboard(text: string, template: PasteSpec): ParseResult {
   // добить пустые хвосты, она въедет в «Торговый счет» и всё поедет молча.
   // Значения 1..N не могут быть настоящей первой колонкой, если та не числовая.
   const droppedIndexColumn =
-    rows[0].length > 1 && template.columns[0].type !== "number" && looksLikeIndexColumn(rows);
+    rows[0].length > 1 && template.columns[0].type !== "number" && looksLikeIndexColumn(rows, expected);
   if (droppedIndexColumn) rows = rows.map((row) => row.slice(1));
 
   // Лишние хвостовые колонки бывают только фантомными — от завершающей «;».
