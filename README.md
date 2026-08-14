@@ -98,6 +98,30 @@ If you wish to just develop locally and not deploy to Vercel, [follow the steps 
 
 > Check out [the docs for Local Development](https://supabase.com/docs/guides/getting-started/local-development) to also run Supabase locally.
 
+## Автономная сборка «Кармана транзакций»
+
+`public/karman-offline.html` — один html-файл со страницей `/karman`, который
+открывается двойным щелчком и работает без сети. Нужен там, где выход в интернет
+закрыт политикой организации.
+
+```bash
+npm run build:offline
+```
+
+Скрипт — `offline/build.mjs`: esbuild собирает `offline/entry.tsx` (тот же
+`components/karman/Generator`, что и на сайте, с признаком `offline`), Tailwind
+собирает стили, оба результата вклеиваются в html. Внешних ссылок в файле нет —
+ни скрипта, ни шрифта, ни картинки.
+
+**Файл в репозитории — собранный.** После правок в `components/karman/**`,
+`lib/karman/**` или `components/ui/**` его надо пересобрать этой командой,
+иначе автономная версия отстанет от сайта.
+
+Чего в автономной версии нет и не может быть: проверки серии по справочнику
+MOEX ISS и лимитных цен от стакана Alor — и то и другое приходит по сети.
+Заявки уходят рыночными с нулевой ценой, предельную применяет биржа
+(см. `docs/adr/0012-rynochnaya-zayavka-uhodit-s-nulevoj-cenoj.md`).
+
 ## Feedback and issues
 
 Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).

@@ -257,6 +257,19 @@ function readOverrides(): StoredOverrides {
   }
 }
 
+/**
+ * Запись тоже под защитой: в офлайн-сборке страница открывается с `file://`,
+ * а там хранилище может быть отключено политикой браузера. Потеря правки
+ * шаблона неприятна, падение страницы посреди подготовки заявок — нет.
+ */
+function writeOverrides(overrides: StoredOverrides): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
+  } catch {
+    // Правка останется только в памяти до перезагрузки.
+  }
+}
+
 /** Шаблоны с наложенными локальными правками. Порядок и состав задаёт код. */
 export function loadTemplates(): Template[] {
   const overrides = readOverrides();
@@ -285,7 +298,7 @@ export function saveTemplate(template: Template): void {
     cancelLine: template.cancelLine,
     cancelStopLine: template.cancelStopLine,
   };
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
+  writeOverrides(overrides);
 }
 
 export function resetTemplate(id: string): Template {
@@ -294,7 +307,7 @@ export function resetTemplate(id: string): Template {
 
   const overrides = readOverrides();
   delete overrides[id];
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides));
+  writeOverrides(overrides);
   return structuredClone(builtin) as Template;
 }
 

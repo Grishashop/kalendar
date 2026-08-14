@@ -83,7 +83,14 @@ const EMPTY_PARSE: ParseResult = {
   warnings: [],
 };
 
-export function Generator() {
+/**
+ * `offline` — сборка для запуска с файла внутри организации, без выхода
+ * в интернет. Отпадает всё, что требует сети: справочник FORTS и котировки.
+ * Значит нет проверки серии и нет лимитного режима — заявки уходят рыночными
+ * с нулевой ценой, планку применяет биржа. Разбор, шаблоны, сверка объёма,
+ * сводка и запись .tri работают целиком: они и так считаются в браузере.
+ */
+export function Generator({ offline = false }: { offline?: boolean } = {}) {
   const [templates, setTemplates] = useState<Template[]>(() =>
     BUILTIN_TEMPLATES.map((item) => structuredClone(item) as Template),
   );
@@ -157,7 +164,10 @@ export function Generator() {
    */
   const refreshMarket = useCallback(
     async (secids: readonly string[], withPrices: boolean) => {
-      if (secids.length === 0) return;
+      // В офлайн-сборке сети нет вовсе: запрос не «упадёт с ошибкой», его просто
+      // не должно быть. Иначе на каждой вставке была бы секунда ожидания и
+      // плашка «справочник недоступен» на пустом месте.
+      if (offline || secids.length === 0) return;
       setLoadingMarket(true);
       const [reference, quote] = await Promise.all([
         loadContracts(secids, withPrices),
@@ -173,7 +183,7 @@ export function Generator() {
       }
       setLoadingMarket(false);
     },
-    [],
+    [offline],
   );
 
   // Вставили таблицу — проверяем серию. Котировки ждут переключения в лимитный
@@ -334,6 +344,24 @@ export function Generator() {
         <p className="text-sm text-zinc-500">
           Заявки для загрузки в карман транзакций QUIK по позициям из терминала.
         </p>
+        {/* Ссылка на автономный файл: внутри организации интернета нет, а
+            скачать сборку надо один раз — снаружи. В самой офлайн-сборке ссылки
+            нет: она вела бы в сеть, которой там не существует. */}
+        {!offline && (
+          <p className="text-xs text-zinc-500">
+            Нет доступа в интернет на рабочем месте?{" "}
+            <a
+              href="/karman-offline.html"
+              download="karman-offline.html"
+              className="underline hover:text-zinc-900 dark:hover:text-zinc-100"
+            >
+              Скачайте автономный файл
+            </a>{" "}
+            — один html, открывается двойным щелчком, работает без сети. Разбор вставки, шаблоны,
+            сверка объёма и запись .tri целиком; проверки серии по справочнику биржи и лимитных цен
+            там нет — заявки уходят рыночными.
+          </p>
+        )}
       </header>
 
       <section className="space-y-3">
@@ -441,6 +469,16 @@ export function Generator() {
 
       <section className="space-y-3 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
         <h2 className="text-sm font-medium">Цена заявки</h2>
+        {offline ? (
+          // Выбора нет: лимитная цена строится от стакана, стакан приходит по
+          // сети. Показываем не выключенные поля, а прямое объяснение — иначе
+          // человек будет щёлкать переключатель и думать, что сломалось.
+          <p className="text-sm text-zinc-500">
+            Заявки уходят <span className="font-medium">рыночными</span> с ценой ноль — предельную
+            цену применит биржа. Лимитный режим требует стакана, а он приходит по сети: в этой
+            сборке её нет.
+          </p>
+        ) : (
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-xs text-zinc-500">
             Режим
@@ -490,6 +528,7 @@ export function Generator() {
                   : `обновлено ${quoteAge} с назад`}
           </span>
         </div>
+        )}
 
         {/* Настоящего прогресса нет: сколько осталось, зависит от того, насколько
             сейчас тормозит ISS или Alor. Полоса неопределённая — она говорит
