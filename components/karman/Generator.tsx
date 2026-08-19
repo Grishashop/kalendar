@@ -12,7 +12,7 @@ import { TemplateEditor } from "@/components/karman/TemplateEditor";
 import { normalizeNumeric } from "@/lib/karman/expression";
 import { parseClipboard, parseDate, type ParseResult } from "@/lib/karman/parse";
 import { buildPlan, generate, type MarketRow, type GenerateResult } from "@/lib/karman/generate";
-import type { CheckVerdict } from "@/lib/karman/checks";
+import { FORTS_ASSETS_DATE, FORTS_SERIES_HORIZON, type CheckVerdict } from "@/lib/karman/checks";
 import { loadContracts, loadQuotes } from "@/lib/karman/market";
 import type { ContractInfo } from "@/lib/karman/contracts";
 import type { OrderMode, Quote } from "@/lib/karman/pricing";
@@ -102,6 +102,13 @@ export function Generator({ offline = false }: { offline?: boolean } = {}) {
   const [stopRaw, setStopRaw] = useState("");
   const [cancelOrders, setCancelOrders] = useState(false);
   const [cancelStops, setCancelStops] = useState(false);
+
+  // UID трейдера для комментария транзакции. По умолчанию пусто и генерация
+  // заблокирована: файлом пользуются несколько человек, и молчаливое значение
+  // по умолчанию однажды отправит пачку под чужим UID. «Без UID» — осознанный
+  // выбор, а не то же самое, что незаполненное поле.
+  const [uid, setUid] = useState("");
+  const [noUid, setNoUid] = useState(false);
 
   const [mode, setMode] = useState<OrderMode>("market");
   const [spread, setSpread] = useState(BUILTIN_TEMPLATES[0].pricing.spreadPercent);
@@ -216,6 +223,7 @@ export function Generator({ offline = false }: { offline?: boolean } = {}) {
             spreadPercent: spread,
             cancelOrders,
             cancelStops,
+            uid: noUid ? "" : uid.trim(),
           })
         : null,
     [
@@ -229,6 +237,8 @@ export function Generator({ offline = false }: { offline?: boolean } = {}) {
       spread,
       cancelOrders,
       cancelStops,
+      uid,
+      noUid,
     ],
   );
 
@@ -291,10 +301,16 @@ export function Generator({ offline = false }: { offline?: boolean } = {}) {
     [plan, parsed, enabled],
   );
 
+  // Пустое поле UID и снятая галочка — это «трейдер ещё не решил», а не «без
+  // UID». Различать обязательно: иначе пачка уйдёт с чужим или пустым
+  // комментарием, и разбираться придётся по факту исполнения.
+  const uidReady = noUid || uid.trim() !== "";
+
   const blocked =
     !parsed ||
     parsed.errors.length > 0 ||
     parsed.rows.length === 0 ||
+    !uidReady ||
     (cancelOrders && parsedOrders.errors.length > 0) ||
     (cancelStops && parsedStops.errors.length > 0);
 
@@ -363,6 +379,39 @@ export function Generator({ offline = false }: { offline?: boolean } = {}) {
           </p>
         )}
       </header>
+
+      {/* UID стоит выше вставки: он попадает в каждую транзакцию, и решать про
+          него надо до того, как человек увлёкся разбором пятидесяти строк. */}
+      <section className="space-y-2 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+        <h2 className="text-sm font-medium">Ваш UID</h2>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="text-xs text-zinc-500">
+            UID
+            <Input
+              value={uid}
+              disabled={noUid}
+              inputMode="numeric"
+              placeholder="62"
+              onChange={(e) => setUid(e.target.value)}
+              className="mt-1 h-9 w-28 font-mono text-sm"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={noUid}
+              onCheckedChange={(value) => setNoUid(value === true)}
+            />
+            Без UID-а
+          </label>
+          <span className="text-xs text-zinc-500">
+            {noUid
+              ? "Комментарий транзакции останется пустым."
+              : uid.trim() === ""
+                ? "Укажите UID или отметьте «Без UID-а» — без этого генерация недоступна."
+                : `Комментарий транзакции: /&!${uid.trim()}`}
+          </span>
+        </div>
+      </section>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -551,6 +600,18 @@ export function Generator({ offline = false }: { offline?: boolean } = {}) {
         {contractsError && (
           <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
             Проверка контрактов не выполнена: {contractsError}.
+          </p>
+        )}
+
+        {/* Справочник биржи не загрузился — проверяем по встроенному. Возраст
+            обязателен на экране: он и определяет, чему верить. */}
+        {!contractsLoaded && (
+          <p className="text-xs text-zinc-500">
+            Проверка идёт по встроенному справочнику FORTS от {FORTS_ASSETS_DATE}: поставочность,
+            ближайшая серия и дата погашения — по настоящим датам обращения, известным до{" "}
+            {FORTS_SERIES_HORIZON}. Незнакомый инструмент и серию за этим сроком справочник не
+            блокирует, а помечает «не проверен»: блокировать поставочный контракт по незнанию
+            значит отправить позицию на поставку.
           </p>
         )}
 
@@ -791,6 +852,7 @@ export function Generator({ offline = false }: { offline?: boolean } = {}) {
                     spreadPercent: spread,
                     cancelOrders,
                     cancelStops,
+                    uid: noUid ? "" : uid.trim(),
                   },
                   enabled,
                 ),
@@ -804,12 +866,14 @@ export function Generator({ offline = false }: { offline?: boolean } = {}) {
               Причин ровно три, и каждая называется своим текстом. */}
           {(blocked || selectedCount === 0) && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              {blocked
-                ? "Генерация недоступна: во вставке есть ошибки — исправьте их выше."
-                : blockedRows > 0 && blockedRows === plan.positions.length
-                  ? `Генерация недоступна: ни одна строка не прошла проверку (${blockedSummary}). ` +
-                    "Отметить строку можно вручную, но сначала убедитесь, что серия та."
-                  : "Генерация недоступна: не отмечено ни одной строки."}
+              {!uidReady
+                ? "Генерация недоступна: укажите свой UID или отметьте «Без UID-а» в блоке выше."
+                : blocked
+                  ? "Генерация недоступна: во вставке есть ошибки — исправьте их выше."
+                  : blockedRows > 0 && blockedRows === plan.positions.length
+                    ? `Генерация недоступна: ни одна строка не прошла проверку (${blockedSummary}). ` +
+                      "Отметить строку можно вручную, но сначала убедитесь, что серия та."
+                    : "Генерация недоступна: не отмечено ни одной строки."}
             </p>
           )}
         </section>

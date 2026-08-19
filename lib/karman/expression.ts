@@ -341,6 +341,13 @@ function callFunction(name: string, node: { args: Node[] }, scope: Scope): Value
       if (digits) return toNumber(value).toFixed(digits[1].length);
       return stringify(value);
     }
+    // Склейка текста нужна для условных полей транзакции: комментарий с UID
+    // строится как CONCATENATE("/&!";[UID]) и пустеет целиком, когда UID не задан.
+    // Имя взято из Excel — там пачку собирали ровно этой функцией.
+    case "CONCATENATE": {
+      expectArgs(name, args, 1, Infinity);
+      return args.map((value) => stringify(value)).join("");
+    }
     default:
       throw new ExpressionError(`неизвестная функция «${name}»`);
   }

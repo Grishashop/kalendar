@@ -50,6 +50,10 @@ const MARKET_COLUMNS = [
   "Лимит вверх",
   "Лимит вниз",
   "Возраст котировки",
+  // UID трейдера: файлом пользуются несколько человек, поэтому значение вводится
+  // на странице, а не правится в шаблоне. Пустая строка означает «без UID»;
+  // что при этом попадёт в транзакцию, решает выражение шаблона.
+  "UID",
 ] as const;
 
 const BROKEN: Omit<CompiledTemplate, "error"> = {
@@ -226,6 +230,12 @@ export interface PlanInput {
   spreadPercent: number;
   cancelOrders: boolean;
   cancelStops: boolean;
+  /**
+   * UID трейдера для комментария транзакции. Задаётся на странице: файлом
+   * пользуются несколько человек, и правка шаблона каждым — верный способ
+   * однажды отправить пачку под чужим UID. Пустая строка означает «без UID».
+   */
+  uid: string;
 }
 
 export interface Plan {
@@ -397,6 +407,7 @@ export function buildPlan(input: PlanInput): Plan {
       "Лимит вверх": data?.contract?.highLimit ?? 0,
       "Лимит вниз": data?.contract?.lowLimit ?? 0,
       "Возраст котировки": data?.quote?.ageSec ?? 0,
+      UID: input.uid ?? "",
     };
 
     let skip = false;

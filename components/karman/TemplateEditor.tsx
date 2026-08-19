@@ -415,7 +415,7 @@ export function TemplateEditor({
         <p className="text-xs text-zinc-500">
           Выражения — в <code>${"{...}"}</code>, колонки — в квадратных скобках. Доступны:{" "}
           {lineNames.map((name) => `[${name}]`).join(", ")}. Функции: IF, ABS, ROUND, INT, MAX, MIN,
-          TEXT, TODAY. Разделитель аргументов — «;».
+          TEXT, TODAY, CONCATENATE. Разделитель аргументов — «;».
         </p>
         <Textarea
           value={template.line}
