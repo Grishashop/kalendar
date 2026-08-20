@@ -87,6 +87,10 @@ export async function updateSession(request: NextRequest) {
     !pathname.startsWith("/auth") &&
     !pathname.startsWith("/temp-calendar") &&
     !pathname.startsWith("/api/temp-calendar") &&
+    // Календарь дежурств отдела поддержки: у них нет аккаунтов в kalendar,
+    // вход на страницу — по паролю самого календаря, как и у трейдерского.
+    !pathname.startsWith("/support-calendar") &&
+    !pathname.startsWith("/api/support-calendar") &&
     // Статическая презентация «Маркета» для коллег — публичная ссылка,
     // без входа (public/presentation/index.html), вне механизма доступа.
     !pathname.startsWith("/presentation")
