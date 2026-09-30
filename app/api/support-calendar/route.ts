@@ -1,5 +1,6 @@
 import { get, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
+import { safeEqual } from "@/lib/password";
 
 // Календарь дежурств отдела поддержки клиентов. Отдельный файл и отдельный
 // пароль от календаря трейдеров (/api/temp-calendar): отделы не должны править
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
     // требуют разных действий — от пользователя ничего не зависит.
     return NextResponse.json({ error: "support_password_not_configured" }, { status: 503 });
   }
-  if (password !== expected) {
+  if (!safeEqual(password, expected)) {
     return NextResponse.json({ error: "Неверный пароль" }, { status: 401 });
   }
 
