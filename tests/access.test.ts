@@ -128,6 +128,23 @@ describe("getSnapshot (кэш)", () => {
     assert.equal(calls, 1);
   });
 
+  it("анонимный снимок без списков не попадает вошедшему", async () => {
+    const withoutLists = snapshot({
+      modes: { ...DEFAULT_MODES, karman: "list" },
+    });
+    const withLists = snapshot({
+      modes: { ...DEFAULT_MODES, karman: "list" },
+      allowed: { market: [], karman: ["a@b.ru"], ticker: [] },
+    });
+
+    const anon = await getSnapshot(async () => withoutLists, Date.now(), "anon");
+    const user = await getSnapshot(async () => withLists, Date.now(), "user");
+
+    assert.equal(anon, withoutLists);
+    assert.equal(user, withLists);
+    assert.equal(verdictFor(user, "karman", "a@b.ru"), "allow");
+  });
+
   it("ошибка загрузки отдаёт режимы по умолчанию и не кэшируется", async () => {
     let calls = 0;
     const failing = async () => {

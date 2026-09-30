@@ -56,7 +56,11 @@ export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const email = typeof user?.email === "string" ? user.email : null;
   const pages = verdictForPath(
-    await getSnapshot(() => loadSnapshot(supabase)),
+    await getSnapshot(
+      () => loadSnapshot(supabase),
+      Date.now(),
+      email ? "user" : "anon",
+    ),
     pathname,
     email,
   );

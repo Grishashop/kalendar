@@ -168,24 +168,37 @@ export function visiblePages(
  */
 export const SNAPSHOT_TTL_MS = 30000;
 
-let cached: { snapshot: AccessSnapshot; at: number } | null = null;
-let inFlight: Promise<AccessSnapshot> | null = null;
+/**
+ * Область кэша. Снимок, загруженный без входа, не содержит списков доступа:
+ * почты трейдеров аноним прочесть не может (RLS на `traders`). Для анонима
+ * списки и не нужны — `verdictFor` отвечает ему `needLogin` раньше, чем
+ * заглянет в список. Но общий кэш отдал бы такой урезанный снимок вошедшему,
+ * и допущенный по списку получил бы отказ. Поэтому области не смешиваются.
+ */
+export type SnapshotScope = "anon" | "user";
+
+const cached = new Map<SnapshotScope, { snapshot: AccessSnapshot; at: number }>();
+const inFlight = new Map<SnapshotScope, Promise<AccessSnapshot>>();
 
 /**
  * Отдаёт снимок из кэша либо забирает через `load`. Параллельные запросы
- * разделяют одну загрузку: на холодном инстансе первая же навигация тянет
- * несколько запросов сразу, и без этого они пошли бы в базу пачкой.
+ * одной области разделяют одну загрузку: на холодном инстансе первая же
+ * навигация тянет несколько запросов сразу, и без этого они пошли бы в базу
+ * пачкой.
  */
 export async function getSnapshot(
   load: () => Promise<AccessSnapshot>,
   now: number = Date.now(),
+  scope: SnapshotScope = "user",
 ): Promise<AccessSnapshot> {
-  if (cached && now - cached.at < SNAPSHOT_TTL_MS) return cached.snapshot;
-  if (inFlight) return inFlight;
+  const hit = cached.get(scope);
+  if (hit && now - hit.at < SNAPSHOT_TTL_MS) return hit.snapshot;
+  const pending = inFlight.get(scope);
+  if (pending) return pending;
 
-  inFlight = load()
+  const request = load()
     .then((snapshot) => {
-      cached = { snapshot, at: Date.now() };
+      cached.set(scope, { snapshot, at: Date.now() });
       return snapshot;
     })
     .catch(() => {
@@ -195,14 +208,15 @@ export async function getSnapshot(
       return OPEN_SNAPSHOT;
     })
     .finally(() => {
-      inFlight = null;
+      inFlight.delete(scope);
     });
 
-  return inFlight;
+  inFlight.set(scope, request);
+  return request;
 }
 
 /** Сброс кэша — после правки доступа в админке и в тестах. */
 export function resetSnapshotCache(): void {
-  cached = null;
-  inFlight = null;
+  cached.clear();
+  inFlight.clear();
 }
