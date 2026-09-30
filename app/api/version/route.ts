@@ -16,7 +16,7 @@ export async function GET() {
     let commitHash = process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || 
                      process.env.NEXT_PUBLIC_GIT_COMMIT_SHA ||
                      "unknown";
-    let commitDate = process.env.VERCEL_GIT_COMMIT_MESSAGE || "unknown";
+    let commitDate = "unknown";
     let commitMessage = process.env.VERCEL_GIT_COMMIT_MESSAGE || "unknown";
     
     // Пытаемся получить информацию из git, если доступно

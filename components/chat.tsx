@@ -113,8 +113,6 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let reconnectTimeout: NodeJS.Timeout | null = null;
     let pollingInterval: NodeJS.Timeout | null = null;
-    let subscriptionCheckInterval: NodeJS.Timeout | null = null;
-    let isSubscribed = false;
     let usePolling = false;
     let isMounted = true; // Флаг для проверки, что компонент ещё смонтирован
     const POLLING_INTERVAL = 30000; // 30 секунд (было 10с — лишняя нагрузка на egress-квоту Supabase)
@@ -369,7 +367,6 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
       )
         .subscribe((status) => {
           console.log("Realtime subscription status for chat:", status);
-          isSubscribed = status === "SUBSCRIBED";
           
           if (status === "SUBSCRIBED") {
             console.log("Successfully subscribed to chat_messages changes");
@@ -414,7 +411,6 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
                   fetchNewMessages();
                 })
                 .subscribe((newStatus) => {
-                  isSubscribed = newStatus === "SUBSCRIBED";
                   if (newStatus === "SUBSCRIBED") {
                     usePolling = false;
                     if (pollingInterval) {
@@ -441,16 +437,6 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
           }
         });
 
-    // Периодическая проверка состояния подписки, переподключаемся при разрыве
-    // Отсутствие Realtime-событий само по себе НЕ означает поломку — это нормально,
-    // если сообщений просто давно не было. Реальный сбой определяется статусом
-    // подписки (CHANNEL_ERROR/TIMED_OUT/CLOSED) в колбэке .subscribe() выше.
-    subscriptionCheckInterval = setInterval(() => {
-      if (channel && !isSubscribed) {
-        console.warn("Chat Realtime subscription appears to be inactive, reconnecting...");
-        // Переподключение будет обработано через subscribe callback
-      }
-    }, 10000); // Проверяем каждые 10 секунд
 
     // Отписываемся при размонтировании
     return () => {
@@ -461,9 +447,6 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
       }
-      if (subscriptionCheckInterval) {
-        clearInterval(subscriptionCheckInterval);
-      }
       if (pollingInterval) {
         clearInterval(pollingInterval);
       }
@@ -473,6 +456,8 @@ export function Chat({ userEmail, currentTraderId }: ChatProps) {
         supabase.removeChannel(channel);
       }
     };
+  // lastMessageId намеренно вне зависимостей: иначе подписка пересоздавалась бы на каждое сообщение
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail, currentTraderId]); // Подписка пересоздаётся только при смене пользователя
 
   useEffect(() => {
