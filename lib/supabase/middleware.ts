@@ -80,6 +80,14 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Вошедшему главная (просмотровый режим) не нужна: ведём сразу в рабочее
+  // пространство, без клиентского редиректа и мигания пустой страницы.
+  if (pathname === "/" && user && !request.nextUrl.searchParams.has("loginRequired")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/protected";
+    return NextResponse.redirect(url);
+  }
+
   if (
     pathname !== "/" &&
     !user &&

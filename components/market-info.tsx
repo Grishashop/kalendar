@@ -463,7 +463,7 @@ export function MarketInfo() {
                         </thead>
                         <tbody>
                           {info.dividends.slice(0, 12).map((d, i) => {
-                            const isUpcoming = d.date >= new Date().toISOString().slice(0, 10);
+                            const isUpcoming = d.date >= new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow" }).format(new Date());
                             return (
                               <tr
                                 key={`${d.date}-${i}`}

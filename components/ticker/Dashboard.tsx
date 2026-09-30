@@ -182,6 +182,9 @@ export function Dashboard() {
   }
 
   return (
+    // Страница задумана тёмной (карточки zinc-800/900, светлый текст), как и «Маркет».
+    // Без собственного фона в светлой теме светлый текст оказывался на белом body.
+    <div className="bg-[#0b1220] text-slate-100">
     <div className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-4 py-6 md:h-screen md:overflow-hidden">
       <div className="mb-4 flex items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-zinc-100">Монитор котировок</h1>
@@ -297,6 +300,7 @@ export function Dashboard() {
           )}
         </main>
       </div>
+    </div>
     </div>
   );
 }
