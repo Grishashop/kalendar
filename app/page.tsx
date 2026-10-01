@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import { AuthButtonClient } from "@/components/auth-button-client";
-import { ThemeSwitcher } from "@/components/theme-switcher";
+import { AppHeader } from "@/components/app-header";
 import { Calendar } from "@/components/calendar";
 import { DayDetailsCard } from "@/components/day-details-card";
 import { createClient } from "@/lib/supabase/client";
@@ -148,37 +147,13 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-anon-key-here`}
 
   return (
     <main className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="w-full border-b border-b-foreground/10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-40">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            {/* Левая часть - логотип */}
-            <div className="flex items-center gap-3">
-              <Image
-                src="/logo.png"
-                alt="Lavochka 2.0"
-                width={120}
-                height={40}
-                className="h-8 w-auto object-contain"
-                priority
-              />
-            </div>
-
-            {/* Центр - описание */}
-            <div className="hidden flex-1 flex-col items-center justify-center text-center md:flex">
-              <p className="text-xs md:text-sm text-muted-foreground">
-                Пользователь не авторизован (только просмотровый режим)
-              </p>
-            </div>
-
-            {/* Правая часть - переключатель темы и авторизация */}
-            <div className="flex items-center gap-3">
-              <ThemeSwitcher />
-              <AuthButtonClient />
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        center={
+          <p className="hidden text-xs text-muted-foreground md:block md:text-sm">
+            Пользователь не авторизован (только просмотровый режим)
+          </p>
+        }
+      />
 
       {/* Основной контент */}
       <div className="flex-1 w-full py-4 md:py-8">

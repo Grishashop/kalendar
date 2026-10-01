@@ -1,12 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { AuthButtonClient } from "@/components/auth-button-client";
-import { ThemeSwitcher } from "@/components/theme-switcher";
+import { AppHeader } from "@/components/app-header";
 import { Calendar } from "@/components/calendar";
 import { DayDetailsCard } from "@/components/day-details-card";
 import { AddDutyCard } from "@/components/add-duty-card";
@@ -164,59 +162,40 @@ export default function ProtectedPage() {
 
   return (
     <main className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="w-full border-b border-b-foreground/10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-40">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            {/* Левая часть - логотип */}
-            <div className="flex items-center gap-3">
-              <Image
-                src="/logo.png"
-                alt="Lavochka 2.0"
-                width={120}
-                height={40}
-                className="h-8 w-auto object-contain"
-                priority
-              />
-            </div>
-
-            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
-              <p className="hidden text-xs text-muted-foreground md:block md:text-sm">
-                {traderData?.name_short 
-                  ? `Авторизован как: ${traderData.name_short}` 
-                  : user?.email 
-                    ? `Авторизован как: ${user.email}` 
-                    : "Авторизованный пользователь"}
+      <AppHeader
+        center={
+          <>
+            <p className="hidden text-xs text-muted-foreground md:block md:text-sm">
+              {traderData?.name_short
+                ? `Авторизован как: ${traderData.name_short}`
+                : user?.email
+                  ? `Авторизован как: ${user.email}`
+                  : "Авторизованный пользователь"}
+            </p>
+            {traderData?.admin && (
+              <p
+                className="text-xs font-semibold text-red-500 transition-colors hover:text-red-600 cursor-pointer md:text-sm"
+                onClick={() => setShowAdminPanel(true)}
+              >
+                АДМИН
               </p>
-              {traderData?.admin && (
-                <p
-                  className="text-xs font-semibold text-red-500 transition-colors hover:text-red-600 cursor-pointer md:text-sm"
-                  onClick={() => setShowAdminPanel(true)}
-                >
-                  АДМИН
-                </p>
-              )}
-            </div>
-
-            {/* Правая часть - переключатель темы и авторизация */}
-            <div className="flex items-center gap-3">
-              {/* Кнопки закрытых разделов не рисуем — тот же образец, что
-                  у вкладок «Заметки» и «Чат». «Тикеры» в шапку не выведены
-                  (ссылки на них не было и до замка): чтобы добавить, достаточно
-                  вписать раздел в HEADER_LINKS. */}
-              {HEADER_LINKS.filter(({ page }) => openPages.includes(page)).map(
-                ({ page, href }) => (
-                  <Button key={page} asChild variant="outline" size="sm">
-                    <Link href={href}>{PAGE_LABELS[page]}</Link>
-                  </Button>
-                ),
-              )}
-              <ThemeSwitcher />
-              <AuthButtonClient />
-            </div>
-          </div>
-        </div>
-      </header>
+            )}
+          </>
+        }
+        nav={
+          // Кнопки закрытых разделов не рисуем — тот же образец, что у вкладок
+          // «Заметки» и «Чат». «Тикеры» в шапку не выведены (ссылки на них не
+          // было и до замка): чтобы добавить, достаточно вписать раздел в
+          // HEADER_LINKS.
+          HEADER_LINKS.filter(({ page }) => openPages.includes(page)).map(
+            ({ page, href }) => (
+              <Button key={page} asChild variant="outline" size="sm">
+                <Link href={href}>{PAGE_LABELS[page]}</Link>
+              </Button>
+            ),
+          )
+        }
+      />
 
       {/* Основной контент */}
       <div className="flex-1 w-full py-4 md:py-8">
