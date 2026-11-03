@@ -1063,19 +1063,52 @@ export function Calendar({ onDayClick, onDoubleClick, refreshTrigger }: Calendar
         });
     };
 
-    // Функция для запуска polling fallback
+    // Функция для запуска polling fallback.
+    // Каждый цикл сначала дешёвый probe: count + максимум updated_at (сотни
+    // байт), а НЕ полная выгрузка диапазона. Ранее polling раз в 60с тянул
+    // select("*") по всему диапазону (замерно 93 КБ на выгрузку, ~130 МБ/сутки
+    // на одну открытую вкладку) — именно так сгорела egress-квота Supabase.
+    // Полная замена (updateDuties(true)) нужна только когда данные реально
+    // изменились: INSERT/UPDATE меняют updated_at, DELETE меняет count.
     const startPolling = () => {
       if (pollingInterval) {
         return; // Polling уже запущен
       }
+      let lastSignature: string | null = null;
       console.log("Starting polling fallback (checking for changes every", POLLING_INTERVAL / 1000, "seconds)");
       pollingInterval = setInterval(() => {
         // Не поллим, если вкладка свёрнута/в фоне — нет смысла тратить трафик впустую
         if (document.hidden) return;
         console.log("Polling: checking for changes...");
-        // Используем fullReplace=true для полной замены данных в загруженном диапазоне
-        // Это гарантирует, что удаленные записи будут удалены из кэша
-        updateDuties(true);
+        void (async () => {
+          if (!isMounted) return;
+          // Дешёвый probe (~30 байт): md5-сигнатура всей таблицы через RPC.
+          // Ловит INSERT/UPDATE/DELETE — нужны и правки "утверждено": у строк
+          // нет колонки updated_at, одним count (probe без rpc) их не взять.
+          const viaRpc = await supabase.rpc("dezurstva_signature");
+          let signature: string;
+          if (!viaRpc.error) {
+            signature = String(viaRpc.data ?? "");
+          } else {
+            // Функции ещё нет (не выполнен supabase/dezurstva_signature.sql):
+            // фолбэк на count — INSERT/DELETE ловит, UPDATE только после
+            // создания функции или возврата Realtime
+            console.warn("dezurstva_signature недоступна, probe по count:", viaRpc.error.message);
+            const fallback = await supabase.from("dezurstva").select("id", { count: "exact" });
+            if (fallback.error || !isMounted) return;
+            signature = `count:${fallback.count}`;
+          }
+          // Первый цикл только фиксирует исходное состояние, без выгрузки
+          if (lastSignature === null) {
+            lastSignature = signature;
+            return;
+          }
+          if (signature === lastSignature) return;
+          lastSignature = signature;
+          // Данные изменились: полная замена в загруженном диапазоне —
+          // гарантирует, что удалённые записи уберутся из кэша
+          updateDuties(true);
+        })();
       }, POLLING_INTERVAL);
     };
 
