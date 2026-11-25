@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { FETCH_HEADERS, fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
+import { fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { mergeQuoteRows, validPrice, type ProviderQuote } from "@/lib/moex/quote-priority";
 import { getMarketInstruments, getTBankPrices, TICKER_TO_TBANK_UID } from "@/lib/tbank/invest";
 import { getQuotes as getAlorQuotes } from "@/lib/ticker/alor";
