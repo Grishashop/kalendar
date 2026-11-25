@@ -62,7 +62,9 @@ function StockLogo({ secid, compact }: { secid: string; compact: boolean }) {
 // на тёмном фоне без белой подложки (в отличие от растровых лого бумаг).
 const CURRENCY_FLAG: Record<string, string> = {
   USD_CBR: "🇺🇸",
+  USD000UTSTOM: "🇺🇸",
   EUR_CBR: "🇪🇺",
+  EUR_RUB__TOM: "🇪🇺",
   CNY_CBR: "🇨🇳",
   CNYRUB_TOM: "🇨🇳",
 };
