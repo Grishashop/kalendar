@@ -385,7 +385,7 @@ function formatMskDateTime(epochMs: number): string {
 // внутри одного дня (вечерняя сессия) календарной проверкой не поймать.
 const STALE_THRESHOLD_MS = 3 * 60 * 1000;
 
-function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<typeof indexSparkline>>>): Quote[] {
+function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<typeof indexSparkline>>>, brokerTimes: Map<string, string>): Quote[] {
   const rows = parseIssTable(json, "marketdata");
   // secid — внутренний идентификатор для клиента/сопоставления с фьючерсом;
   // source — реальный SECID в ответе ISS. IMOEX2 приходит под своим кодом,
@@ -406,8 +406,12 @@ function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<t
       // Один SECID может прийти с нескольких бордов — берём первую строку с ненулевым CURRENTVALUE.
       const r =
         candidates.find((c) => num(c["CURRENTVALUE"])) ?? candidates[0];
-      if (!r || !lastOrNull(r["CURRENTVALUE"])) {
-        const chart = charts[secid];
+      const chart = charts[secid];
+      // До утренней сессии показываем закрытие последней сессии по свечам.
+      // В сводке ISS SYSTIME относится к публикации, а не к сделке.
+      const overnightClose = nowMsk() < "07:00:00" && chart?.date === previousMoscowDay(todayMsk()).day &&
+        !(Date.parse(brokerTimes.get(source) ?? "") >= Date.parse(chart.candleTime));
+      if (!r || !lastOrNull(r["CURRENTVALUE"]) || overnightClose) {
         if (!chart?.values.length) return null;
         return {
           secid, name: meta[secid].name, last: chart.values[chart.values.length - 1],
@@ -973,7 +977,7 @@ export async function GET(request: Request) {
   const [imoex, rtsi] = await charts;
   const indexFutures = fortsJson ? buildFuturesMap(fortsJson, INDEX_FUTURES) : {};
   const indices: IndexQuote[] = (
-    buildIndices(indicesJson, { IMOEX: imoex, RTSI: rtsi })
+    buildIndices(indicesJson, { IMOEX: imoex, RTSI: rtsi }, new Map(indexSymbols.map(id => [id, tbank.get(id)?.time ?? alor.get(id)?.time ?? ""])))
   ).map((q) => ({ ...q, future: indexFutures[q.secid] ?? null }));
 
   const currencyFutures = fortsJson
@@ -1027,7 +1031,7 @@ export async function GET(request: Request) {
     const id = q.secid === "IMOEX" ? "IMOEX2" : q.secid;
     const tb = tbank.get(id), broker = alor.get(id);
     q.source ??= tb ? "Т-Инвестиции" : broker ? "Алор" : id.endsWith("_CBR") ? "ЦБ" : "Мосбиржа";
-    q.observedAt = tb?.time ?? broker?.time;
+    q.observedAt = q.candleTime ?? tb?.time ?? broker?.time;
     q.receivedAt = receivedAt;
   }
   const quoteTimes = new Map<string, string>();
