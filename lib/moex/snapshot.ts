@@ -3,6 +3,12 @@ import type { MarketResponse, Quote } from "../../app/api/market/route";
 export function restoreMissing(fresh: MarketResponse, previous?: MarketResponse | null) {
   if (!previous) return fresh;
   const sameDay = fresh.calendarDay === previous.calendarDay;
+  if (sameDay && fresh.calendarDay) {
+    for (const index of ["imoex", "rtsi"] as const) {
+      if (fresh.sparklines[index].length < 2 && previous.sparklines[index].length >= 2)
+        fresh.sparklines[index] = previous.sparklines[index];
+    }
+  }
   function combine<T extends Quote>(current: T[], old: T[], key = (q: T) => q.secid) {
     const result = current.filter(q => q.last !== null);
     const keys = new Set(result.map(key));

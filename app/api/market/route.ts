@@ -5,7 +5,7 @@ import { lastCandleBefore, previousMoscowDay } from "@/lib/moex/calendar";
 import { NextResponse } from "next/server";
 import { fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { mergeQuoteRows, validPrice, type ProviderQuote } from "@/lib/moex/quote-priority";
-import { hourlyCloses, getMarketInstruments, getTBankPrices, TICKER_TO_TBANK_UID } from "@/lib/tbank/invest";
+import { candleCloses, getMarketInstruments, getTBankPrices, TICKER_TO_TBANK_UID } from "@/lib/tbank/invest";
 import { alorFetch, getQuotes as getAlorQuotes } from "@/lib/ticker/alor";
 import { SECTOR_GROUPS } from "@/lib/moex/sectors";
 
@@ -234,9 +234,9 @@ const calendarClose = unstable_cache(async (
   // окно к последней сделке даже при длительной приостановке торгов.
   const from = end - 14 * 86400000;
   const week = 7 * 86400000;
-  const candidates = id ? await hourlyCloses(id, end - week, end).catch(() => []) : [];
+  const candidates = id ? await candleCloses(id, end - week, end).catch(() => []) : [];
   if (id && !lastCandleBefore(candidates, end)) {
-    candidates.push(...await hourlyCloses(id, from, end - week).catch(() => []));
+    candidates.push(...await candleCloses(id, from, end - week).catch(() => []));
   }
   const primary = lastCandleBefore(candidates, end);
   if (primary && primary.time >= start) return primary.close;
@@ -710,11 +710,28 @@ function buildCurrencies(cbrJson: unknown, fxTomJson: unknown, today: string): Q
   return out;
 }
 
-function buildSparkline(json: unknown): number[] {
-  const rows = parseIssTable(json, "candles");
-  return rows
-    .map((r) => num(r["close"]))
-    .filter((v): v is number => v !== null);
+async function indexSparkline(symbol: string, id: string, day: string, iss: unknown) {
+  const start = Date.parse(day + "T00:00:00+03:00");
+  const end = Date.now();
+  function prices(rows: {time: number; close: number}[]) {
+    const unique = new Map<number, number>();
+    for (const row of rows) {
+      if (row.time >= start && row.time <= end && Number.isFinite(row.close) && row.close > 0)
+        unique.set(row.time, row.close);
+    }
+    return [...unique].sort(([a], [b]) => a - b).map(([, close]) => close);
+  }
+  const bank = prices(await candleCloses(id, start, end, "CANDLE_INTERVAL_10_MIN").catch(() => []));
+  if (bank.length >= 2) return bank;
+  const params = new URLSearchParams({exchange: "MOEX", symbol, tf: "600",
+    from: String(start / 1000), to: String(Math.floor(end / 1000))});
+  const history = await alorFetch("/md/v2/history?" + params, AbortSignal.timeout(3000))
+    .catch(() => null) as {history?: {time: number; close: number}[]} | null;
+  const broker = prices((history?.history ?? []).map(row => ({time: row.time * 1000, close: row.close})));
+  if (broker.length >= 2) return broker;
+  return prices(parseIssTable(iss, "candles").map(row => ({
+    time: Date.parse(String(row.begin).replace(" ", "T") + "+03:00"), close: Number(row.close),
+  })));
 }
 
 // Максимальное UPDATETIME (HH:MM:SS) среди строк, у которых оно есть.
@@ -875,6 +892,10 @@ export async function GET(request: Request) {
   }
 
   // Неподдерживаемый индекс или валютная пара не должны мешать акциям.
+  const charts = Promise.all([
+    indexSparkline("IMOEX2", instruments.get("IMOEX2")!, today, val(sparkImoexR)),
+    indexSparkline("RTSI", instruments.get("RTSI")!, today, val(sparkRtsiR)),
+  ]);
   const priceGroups = await Promise.all([
     getTBankPrices(stockIds),
     getTBankPrices(futuresIds),
@@ -927,6 +948,7 @@ export async function GET(request: Request) {
     return { ...q, future: code ? (currencyFutures[code] ?? null) : null };
   });
 
+  const [imoex, rtsi] = await charts;
   const body: MarketResponse = {
     indices,
     stocks: buildStocks(stocksJson).filter((quote) => quote.last !== null),
@@ -935,10 +957,7 @@ export async function GET(request: Request) {
     topStocksByVolume: fullScope ? buildTopStocks(topStocksJson) : [],
     topFuturesByVolume: fullScope ? buildTopFutures(topFuturesJson) : [],
     sectorStocks: fullScope ? buildSectorStocks(topStocksJson) : [],
-    sparklines: {
-      imoex: buildSparkline(val(sparkImoexR)),
-      rtsi: buildSparkline(val(sparkRtsiR)),
-    },
+    sparklines: { imoex, rtsi },
     moexTime: maxUpdateTime(indicesJson, stocksJson),
     cbrDate,
     alorUsed: alor.size > 0,
