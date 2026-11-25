@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { FETCH_HEADERS, fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
+import { mergeQuoteRows, validPrice, type ProviderQuote } from "@/lib/moex/quote-priority";
+import { getMarketInstruments, getTBankPrices, TICKER_TO_TBANK_UID } from "@/lib/tbank/invest";
+import { getQuotes as getAlorQuotes } from "@/lib/ticker/alor";
 import { SECTOR_GROUPS } from "@/lib/moex/sectors";
 
 // Дашборд «Российский рынок»: агрегирует котировки из открытых источников
@@ -86,8 +89,7 @@ export interface MarketResponse {
   sparklines: { imoex: number[]; rtsi: number[] };
   moexTime: string | null;
   cbrDate: string | null;
-  // true, если голубые фишки/юань реально обновлены через авторизованный
-  // ALOR (реалтайм) в ЭТОМ ответе — а не остались на данных MOEX (до 15 мин).
+  // Есть котировки, для которых сработал резервный источник Алор.
   alorUsed: boolean;
 }
 
@@ -120,108 +122,36 @@ const STOCK_NAMES: Record<string, string> = {
   PLZL: "Полюс",
 };
 
-// --- ALOR (авторизованный, реалтайм) ---
-//
-// Публичный (без токена) ALOR даёт те же 15 минут задержки, что и MOEX —
-// смысла нет. С личным токеном (ALOR_TOKEN, из личного кабинета брокера,
-// НИКОГДА не должен попадать в клиентский код — используется только
-// здесь, server-side) — реалтайм. Обмен: ALOR_TOKEN — это долгоживущий
-// refresh-токен, на каждый запрос меняем его на JWT access-токен (живёт
-// 30 минут, но проще получать заново на каждый вызов GET() — обновление
-// и так только по явному клику "Обновить" в интерфейсе, не по расписанию,
-// лишней частоты не будет).
-//
-// Только 10 голубых фишек (STOCK_TICKERS) + биржевой юань — топ-20 по
-// обороту и фьючерсы остаются на MOEX: ALOR без доп. прав не отдаёт
-// объёмы по всему борду для ранжирования, а фьючерсам нужен динамический
-// подбор фронт-месяца, которого через ALOR нет.
-const ALOR_SYMBOLS =
-  STOCK_TICKERS.map((t) => `MOEX:${t}`).join(",") + ",MOEX:CNYRUB_TOM";
-
-interface AlorQuote {
-  symbol: string;
-  last_price: number | null;
-  open_price: number | null;
-  high_price: number | null;
-  low_price: number | null;
-}
-
-async function getAlorAccessToken(): Promise<string | null> {
-  const refreshToken = process.env.ALOR_TOKEN;
-  if (!refreshToken) {
-    console.error("ALOR_TOKEN не задан в env");
-    return null;
+async function fetchAlorQuotes(symbols: string[]): Promise<Map<string, ProviderQuote>> {
+  const quotes = new Map<string, ProviderQuote>();
+  const requests = [];
+  for (let offset = 0; offset < symbols.length; offset += 50) {
+    const batch = symbols.slice(offset, offset + 50).map((symbol) => `MOEX:${symbol}`);
+    requests.push(getAlorQuotes(batch.join(","), AbortSignal.timeout(4500)));
   }
-  try {
-    const res = await fetch(
-      `https://oauth.alor.ru/refresh?token=${encodeURIComponent(refreshToken)}`,
-      {
-        method: "POST",
-        headers: FETCH_HEADERS,
-        signal: AbortSignal.timeout(5000),
-        cache: "no-store",
-      },
-    );
-    if (!res.ok) {
-      console.error("ALOR refresh HTTP", res.status, await res.text());
-      return null;
+  for (const result of await Promise.allSettled(requests)) {
+    if (result.status !== "fulfilled" || !Array.isArray(result.value)) continue;
+    for (const row of result.value) {
+      if (typeof row?.symbol !== "string") continue;
+      const last = lastOrNull(row.last_price);
+      if (last === null) continue;
+      quotes.set(row.symbol, {
+        last,
+        changePct: num(row.change_percent),
+        open: lastOrNull(row.open_price),
+        high: lastOrNull(row.high_price),
+        low: lastOrNull(row.low_price),
+      });
     }
-    const json = (await res.json()) as { AccessToken?: string };
-    if (!json.AccessToken) console.error("ALOR refresh: нет AccessToken в ответе", json);
-    return json.AccessToken ?? null;
-  } catch (e) {
-    console.error("ALOR refresh упал:", e);
-    return null;
   }
+  return quotes;
 }
 
-// Best-effort: любая ошибка (нет токена, ALOR недоступен, JWT протух) —
-// пустая карта, дальше по коду просто остаёмся на данных MOEX.
-async function fetchAlorQuotes(): Promise<Map<string, AlorQuote>> {
-  const out = new Map<string, AlorQuote>();
-  const jwt = await getAlorAccessToken();
-  if (!jwt) return out;
-  try {
-    const res = await fetch(
-      `https://api.alor.ru/md/v2/Securities/${ALOR_SYMBOLS}/quotes`,
-      {
-        headers: { ...FETCH_HEADERS, Authorization: `Bearer ${jwt}` },
-        signal: AbortSignal.timeout(6000),
-        cache: "no-store",
-      },
-    );
-    if (!res.ok) {
-      console.error("ALOR quotes HTTP", res.status, await res.text());
-      return out;
-    }
-    const rows = (await res.json()) as AlorQuote[];
-    for (const r of rows) {
-      if (typeof r.symbol === "string") out.set(r.symbol, r);
-    }
-  } catch (e) {
-    console.error("ALOR quotes упал:", e);
-  }
-  return out;
+function issTable(rows: Record<string, unknown>[]) {
+  const columns = [...new Set(rows.flatMap(Object.keys))];
+  return { columns, data: rows.map((row) => columns.map((column) => row[column] ?? null)) };
 }
 
-// Мутирует котировку на месте: реалтайм-цена ALOR вместо 15-минутной
-// MOEX. changePct не трогаем — его пересчитает applyWeekendCorrection
-// (или он уже верный на буднях) от свежего last, который мы тут поставили.
-function applyAlorQuote(
-  q: Quote,
-  alorSymbol: string,
-  alorQuotes: Map<string, AlorQuote>,
-): boolean {
-  const r = alorQuotes.get(alorSymbol);
-  if (!r) return false;
-  if (typeof r.last_price === "number") q.last = r.last_price;
-  if (typeof r.open_price === "number") q.open = r.open_price;
-  if (typeof r.high_price === "number") q.high = r.high_price;
-  if (typeof r.low_price === "number") q.low = r.low_price;
-  return true;
-}
-
-// Цена фьючерса: последняя сделка, иначе расчётная цена (в выходные сделок нет).
 function futuresPrice(m: Record<string, unknown>): number | null {
   return lastOrNull(m["LAST"]) ?? lastOrNull(m["SETTLEPRICE"]);
 }
@@ -597,7 +527,7 @@ function buildTopStocks(json: unknown): Quote[] {
       names.set(r["SECID"], String(r["SHORTNAME"] ?? ""));
   });
   return parseIssTable(json, "marketdata")
-    .filter((r) => typeof r["SECID"] === "string" && lastOrNull(r["LAST"]) !== null)
+    .filter((r) => typeof r["SECID"] === "string" && lastOrNull(r["LAST"]) !== null && (num(r["VALTODAY"]) ?? 0) > 0)
     .map((r) => {
       const secid = String(r["SECID"]);
       return {
@@ -915,35 +845,130 @@ export async function GET(request: Request) {
     sparkRtsiR,
     topStocksR,
     topFuturesR,
-    alorR,
+    futuresCatalogR,
+    imoexCatalogR,
+    rtsiCatalogR,
   ] = await Promise.allSettled([
-    fetchJson(URL_INDICES),
-    fetchJson(URL_STOCKS),
-    fetchJson(URL_FORTS),
-    fetchJson(URL_CBR),
-    fetchJson(URL_FX_TOM),
-    fetchJson(candlesUrl("SNDX", "IMOEX2", today)),
-    fetchJson(candlesUrl("RTSI", "RTSI", today)),
-    fullScope ? fetchJson(URL_STOCKS_ALL) : Promise.resolve(null),
-    fullScope ? fetchJson(URL_FORTS_ALL) : Promise.resolve(null),
-    fetchAlorQuotes(),
+    fetchJson(URL_INDICES, 2, 3000),
+    fetchJson(URL_STOCKS, 2, 3000),
+    fetchJson(URL_FORTS, 2, 3000),
+    fetchJson(URL_CBR, 2, 3000),
+    fetchJson(URL_FX_TOM, 2, 3000),
+    fetchJson(candlesUrl("SNDX", "IMOEX2", today), 1, 3000),
+    fetchJson(candlesUrl("RTSI", "RTSI", today), 1, 3000),
+    fullScope ? fetchJson(URL_STOCKS_ALL, 2, 3000) : Promise.resolve(null),
+    fullScope ? fetchJson(URL_FORTS_ALL, 2, 3000) : Promise.resolve(null),
+    getMarketInstruments("Futures"),
+    getMarketInstruments("FindInstrument", "IMOEX2"),
+    getMarketInstruments("FindInstrument", "RTSI"),
   ]);
 
   const val = <T,>(r: PromiseSettledResult<T>): T | null =>
     r.status === "fulfilled" ? r.value : null;
 
-  const indicesJson = val(indicesR);
-  const stocksJson = val(stocksR);
-  const fortsJson = val(fortsR);
   const cbrJson = val(cbrR);
-  const fxTomJson = val(fxTomR);
+  const stocksRaw = val(stocksR);
+  const topStocksRaw = val(topStocksR);
+  const fortsRaw = val(fortsR);
+  const topFuturesRaw = val(topFuturesR);
 
-  // Если не удалось получить вообще ничего существенного — 502.
+  const instruments = new Map<string, string>();
+  const stockSymbols = new Set(STOCK_TICKERS);
+  if (fullScope) {
+    for (const group of SECTOR_GROUPS) {
+      for (const { secid } of group.items) stockSymbols.add(secid);
+    }
+    for (const row of parseIssTable(topStocksRaw, "securities")) {
+      if (typeof row.SECID === "string") stockSymbols.add(row.SECID);
+    }
+  }
+  const stockIds: string[] = [];
+  for (const symbol of stockSymbols) {
+    const id = TICKER_TO_TBANK_UID[symbol] ?? `${symbol}_TQBR`;
+    instruments.set(symbol, id);
+    stockIds.push(id);
+  }
+
+  const fxSymbols = ["USD000UTSTOM", "EUR_RUB__TOM", "CNYRUB_TOM"];
+  for (const symbol of fxSymbols) instruments.set(symbol, `${symbol}_CETS`);
+  const indexSymbols = ["IMOEX2", "RTSI"];
+  for (const [symbol, catalog] of [
+    ["IMOEX2", val(imoexCatalogR)],
+    ["RTSI", val(rtsiCatalogR)],
+  ] as const) {
+    const instrument = catalog?.find((row) => row.ticker === symbol && row.classCode === "INDEX");
+    instruments.set(symbol, instrument?.uid ?? `${symbol}_INDEX`);
+  }
+
+  // Состав Топ-20 определяется оборотом ISS. Котировки запрашиваем
+  // только для отобранных контрактов и серий, видимых в обзоре.
+  const rankedFutures = new Set(buildTopFutures(topFuturesRaw).map(({ secid }) => secid));
+  const futures = new Map<string, Record<string, unknown>>();
+  for (const raw of [fortsRaw, topFuturesRaw]) {
+    for (const row of parseIssTable(raw, "securities")) {
+      if (typeof row.SECID === "string") futures.set(row.SECID, row);
+    }
+  }
+  const futuresAssets: Record<string, string> = {
+    BR: "BR", NG: "NG", GD: "GOLD", MX: "MIX", RI: "RTS",
+    SI: "Si", EU: "Eu", CR: "CNY",
+  };
+  for (const contract of val(futuresCatalogR) ?? []) {
+    if (contract.classCode !== "SPBFUT") continue;
+    const symbol = contract.ticker;
+    const prefix = symbol.match(/^([A-Z]+)[FGHJKMNQUVXZ]\d$/i)?.[1];
+    const asset = prefix ? futuresAssets[prefix.toUpperCase()] : undefined;
+    const expiry = contract.lastTradeDate?.slice(0, 10);
+    if (!futures.has(symbol) && asset && expiry && expiry >= today) {
+      futures.set(symbol, {
+        SECID: symbol, SHORTNAME: contract.name, ASSETCODE: asset, LASTTRADEDATE: expiry,
+      });
+    }
+  }
+  const futuresIds: string[] = [];
+  const futuresUids = new Map((val(futuresCatalogR) ?? [])
+    .filter((contract) => contract.classCode === "SPBFUT")
+    .map((contract) => [contract.ticker, contract.uid]));
+  const visibleAssets = new Set(Object.values(futuresAssets));
+  for (const [symbol, row] of futures) {
+    if (!rankedFutures.has(symbol) && !visibleAssets.has(String(row.ASSETCODE))) continue;
+    const id = futuresUids.get(symbol) ?? `${symbol}_SPBFUT`;
+    instruments.set(symbol, id);
+    futuresIds.push(id);
+  }
+
+  // Неподдерживаемый индекс или валютная пара не должны мешать акциям.
+  const priceGroups = await Promise.all([
+    getTBankPrices(stockIds),
+    getTBankPrices(futuresIds),
+    ...[...fxSymbols, ...indexSymbols].map((symbol) => getTBankPrices([instruments.get(symbol)!])),
+  ]);
+  const tbankPrices = new Map(priceGroups.flatMap((group) => [...group]));
+  const tbank = new Map<string, ProviderQuote>();
+  for (const [symbol, id] of instruments) {
+    const price = tbankPrices.get(id);
+    if (validPrice(price)) tbank.set(symbol, price);
+  }
+  const alor = await fetchAlorQuotes([...instruments.keys()].filter((symbol) => !tbank.has(symbol)));
+  const merge = (
+    raw: unknown,
+    symbols: string[],
+    price: "LAST" | "CURRENTVALUE" = "LAST",
+    securities = parseIssTable(raw, "securities"),
+  ) => ({
+    securities: issTable(securities),
+    marketdata: issTable(mergeQuoteRows(parseIssTable(raw, "marketdata"), symbols, price, tbank, alor)),
+  });
+  const indicesJson = merge(val(indicesR), indexSymbols, "CURRENTVALUE");
+  const stocksJson = merge(stocksRaw, STOCK_TICKERS);
+  const fortsJson = merge(fortsRaw, [...futures.keys()], "LAST", [...futures.values()]);
+  const fxTomJson = merge(val(fxTomR), fxSymbols);
+  const topStocksJson = merge(topStocksRaw, [...stockSymbols]);
+  const topFuturesJson = merge(topFuturesRaw, [...futures.keys()], "LAST", [...futures.values()]);
+
   if (
-    indicesJson === null &&
-    stocksJson === null &&
-    fortsJson === null &&
-    cbrJson === null
+    cbrJson === null &&
+    [indicesJson, stocksJson, fortsJson, fxTomJson].every((json) => json.marketdata.data.length === 0)
   ) {
     return NextResponse.json(
       { error: "Не удалось получить данные" },
@@ -977,36 +1002,20 @@ export async function GET(request: Request) {
 
   const body: MarketResponse = {
     indices,
-    stocks: stocksJson ? buildStocks(stocksJson) : [],
+    stocks: buildStocks(stocksJson).filter((quote) => quote.last !== null),
     commodities: fortsJson ? buildCommodities(fortsJson) : [],
     currencies,
-    topStocksByVolume: val(topStocksR) ? buildTopStocks(val(topStocksR)) : [],
-    topFuturesByVolume: val(topFuturesR) ? buildTopFutures(val(topFuturesR)) : [],
-    sectorStocks: val(topStocksR) ? buildSectorStocks(val(topStocksR)) : [],
+    topStocksByVolume: fullScope ? buildTopStocks(topStocksJson) : [],
+    topFuturesByVolume: fullScope ? buildTopFutures(topFuturesJson) : [],
+    sectorStocks: fullScope ? buildSectorStocks(topStocksJson) : [],
     sparklines: {
       imoex: buildSparkline(val(sparkImoexR)),
       rtsi: buildSparkline(val(sparkRtsiR)),
     },
     moexTime: maxUpdateTime(indicesJson, stocksJson),
     cbrDate,
-    alorUsed: false,
+    alorUsed: alor.size > 0,
   };
-
-  // Реалтайм-цены ALOR поверх голубых фишек/юаня от MOEX (до 15 мин) —
-  // только для того, что реально пришло; при сбое (нет токена, ALOR
-  // недоступен) остаёмся на данных MOEX без единого намёка на ошибку
-  // пользователю — это необязательное улучшение, а не основной источник.
-  const alorQuotes = val(alorR) ?? new Map<string, AlorQuote>();
-  let alorUsed = false;
-  for (const q of body.stocks) {
-    if (applyAlorQuote(q, q.secid, alorQuotes)) alorUsed = true;
-  }
-  for (const q of body.currencies) {
-    if (q.secid === "CNYRUB_TOM" && applyAlorQuote(q, "CNYRUB_TOM", alorQuotes)) {
-      alorUsed = true;
-    }
-  }
-  body.alorUsed = alorUsed;
 
   // changePct теперь ВСЕГДА пересчитывается сами (closeBeforeLastTradingDay
   // в applyWeekendCorrection), а не только когда обнаружен рассинхрон
@@ -1042,7 +1051,7 @@ export async function GET(request: Request) {
     // fortsJson (уже получен в любом случае) покрывает все контракты,
     // нужные для commodities/embedded FutureInfo — топ-20 фьючерсов в
     // компактном виде и так пуст, дополнительные контракты не нужны.
-    await applyWeekendCorrection(body, val(topFuturesR) ?? fortsJson, stockPrevDate);
+    await applyWeekendCorrection(body, fullScope ? topFuturesJson : fortsJson, stockPrevDate);
   }
 
   // dynamic = "force-dynamic" выше уже не даёт Next.js кэшировать сам

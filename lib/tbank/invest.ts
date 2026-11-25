@@ -12,6 +12,9 @@
 
 import { Agent, fetch as undiciFetch } from "undici";
 import tls from "node:tls";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import type { ProviderQuote } from "../moex/quote-priority";
 import { unstable_cache } from "next/cache";
 
 // T-Bank (как и другие крупные российские банки) с 2022 года использует TLS-
@@ -109,7 +112,7 @@ const tbankDispatcher = new Agent({
 });
 
 const TBANK_BASE =
-  "https://invest-public-api.tbank.ru/rest/tinkoff.public.invest.api.contract.v1.InstrumentsService";
+  "https://invest-public-api.tbank.ru/rest/tinkoff.public.invest.api.contract.v1";
 
 export interface TBankDividend {
   recordDate: string; // "YYYY-MM-DD" — дата закрытия реестра
@@ -146,21 +149,37 @@ function moneyValueToNumber(v: { units?: string; nano?: number } | undefined): n
   return units + nano;
 }
 
-async function tbankFetch(method: string, body: Record<string, unknown>): Promise<unknown> {
-  const token = process.env.TBANK_INVEST_TOKEN;
+let keychainToken: Promise<string | undefined> | undefined;
+
+function marketToken() {
+  if (process.env.TBANK_INVEST_TOKEN) return Promise.resolve(process.env.TBANK_INVEST_TOKEN);
+  if (process.platform !== "darwin") return Promise.resolve(undefined);
+  return (keychainToken ??= promisify(execFile)(
+    "/usr/bin/security", ["find-generic-password", "-s", "TBANK_INVEST_TOKEN", "-w"],
+    { timeout: 1500 },
+  ).then(({ stdout }) => stdout.trim() || undefined, () => undefined));
+}
+
+async function tbankFetch(
+  method: string,
+  body: Record<string, unknown>,
+  service = "InstrumentsService",
+  fast = false,
+): Promise<unknown> {
+  const token = fast ? await marketToken() : process.env.TBANK_INVEST_TOKEN;
   if (!token) throw new Error("TBANK_INVEST_TOKEN не задан");
 
   let lastErr: unknown;
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < (fast ? 1 : 2); i++) {
     try {
-      const res = await undiciFetch(`${TBANK_BASE}/${method}`, {
+      const res = await undiciFetch(`${TBANK_BASE}.${service}/${method}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(9000),
+        signal: AbortSignal.timeout(fast ? 4500 : 9000),
         // undici's own fetch (не патченный Next.js глобальный fetch) —
         // next.revalidate тут не поддерживается, зато dispatcher из того
         // же пакета совместим с нашим доверенным CA (см. выше).
@@ -173,7 +192,7 @@ async function tbankFetch(method: string, body: Record<string, unknown>): Promis
       return await res.json();
     } catch (e) {
       lastErr = e;
-      if (i === 0) {
+      if (i === 0 && !fast) {
         const { promise, resolve } = Promise.withResolvers<void>();
         setTimeout(resolve, 400);
         await promise;
@@ -349,3 +368,58 @@ export const getAllDividendPayingShares = unstable_cache(
   ["tbank-all-dividend-shares"],
   { revalidate: 86400 },
 );
+
+interface MarketInstrument {
+  uid: string;
+  ticker: string;
+  classCode: string;
+  name: string;
+  lastTradeDate?: string;
+}
+
+export const getMarketInstruments = unstable_cache(
+  async (method: "Futures" | "FindInstrument", query?: string): Promise<MarketInstrument[]> => {
+    if (!(await marketToken())) return [];
+    const response = await tbankFetch(method, query
+      ? { query }
+      : { instrumentStatus: "INSTRUMENT_STATUS_BASE" }, "InstrumentsService", true) as {
+        instruments?: MarketInstrument[];
+      };
+    return response.instruments ?? [];
+  },
+  ["tbank-market-instruments"],
+  { revalidate: 3600 },
+);
+
+export async function getTBankPrices(ids: string[]): Promise<Map<string, ProviderQuote>> {
+  const prices = new Map<string, ProviderQuote>();
+  if (!ids.length || !(await marketToken())) return prices;
+  const requests = [];
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    requests.push(tbankFetch("GetLastPrices", {
+      instrumentId: ids.slice(offset, offset + 100),
+      instrumentStatus: "INSTRUMENT_STATUS_ALL",
+      lastPriceType: "LAST_PRICE_EXCHANGE",
+    }, "MarketDataService", true));
+  }
+  for (const result of await Promise.allSettled(requests)) {
+    if (result.status === "rejected") continue;
+    const { lastPrices } = result.value as {
+      lastPrices?: {
+        instrumentUid: string;
+        ticker: string;
+        classCode: string;
+        price?: { units?: string; nano?: number };
+        time?: string;
+      }[];
+    };
+    for (const row of lastPrices ?? []) {
+      const last = moneyValueToNumber(row.price);
+      if (!Number.isFinite(last) || last === 0) continue;
+      const quote = { last, time: row.time };
+      prices.set(row.instrumentUid, quote);
+      prices.set(`${row.ticker}_${row.classCode}`, quote);
+    }
+  }
+  return prices;
+}

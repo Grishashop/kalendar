@@ -28,14 +28,14 @@ function decodeJwtExp(jwt: string): number {
   return payload.exp;
 }
 
-async function fetchAccessToken(): Promise<TokenCache> {
+async function fetchAccessToken(signal?: AbortSignal): Promise<TokenCache> {
   const refreshToken = process.env.ALOR_TOKEN;
   if (!refreshToken) {
     throw new Error("alor_auth_failed");
   }
   const res = await fetch(
     `${OAUTH_URL}?token=${encodeURIComponent(refreshToken)}`,
-    { method: "POST", cache: "no-store" },
+    { method: "POST", cache: "no-store", signal },
   );
   if (!res.ok) {
     throw new Error("alor_auth_failed");
@@ -53,7 +53,7 @@ async function fetchAccessToken(): Promise<TokenCache> {
  * (когда ALOR_TOKEN не задан) — тогда запросы к Alor идут
  * без заголовка Authorization и получают публичные данные с задержкой 15 мин.
  */
-export async function getAccessToken(): Promise<string | null> {
+export async function getAccessToken(signal?: AbortSignal): Promise<string | null> {
   if (!process.env.ALOR_TOKEN) {
     return null;
   }
@@ -61,7 +61,7 @@ export async function getAccessToken(): Promise<string | null> {
   if (tokenCache && tokenCache.exp - now > EXPIRY_SAFETY_MARGIN_SEC) {
     return tokenCache.jwt;
   }
-  tokenCache = await fetchAccessToken();
+  tokenCache = await fetchAccessToken(signal);
   return tokenCache.jwt;
 }
 
@@ -71,19 +71,21 @@ export async function getAccessToken(): Promise<string | null> {
  * Бросает Error("alor_auth_failed") при сбое обмена токена,
  * иначе Error("alor_unavailable: <status>") на прочие не-2xx ответы.
  */
-export async function alorFetch(path: string): Promise<unknown> {
-  const token = await getAccessToken();
+export async function alorFetch(path: string, signal?: AbortSignal): Promise<unknown> {
+  const token = await getAccessToken(signal);
   const res = await fetch(`${API_BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     cache: "no-store",
+    signal,
   });
 
   if (res.status === 401 && token) {
     tokenCache = null;
-    const retryToken = await getAccessToken();
+    const retryToken = await getAccessToken(signal);
     const retryRes = await fetch(`${API_BASE}${path}`, {
       headers: retryToken ? { Authorization: `Bearer ${retryToken}` } : {},
       cache: "no-store",
+      signal,
     });
     if (!retryRes.ok) {
       throw new Error(`alor_unavailable: ${retryRes.status}`);
@@ -112,9 +114,9 @@ export async function listAllSecurities(exchange: string): Promise<SecuritySearc
 }
 
 /** symbols в формате "MOEX:SBER,MOEX:LKOH" */
-export async function getQuotes(symbols: string): Promise<unknown> {
+export async function getQuotes(symbols: string, signal?: AbortSignal): Promise<unknown> {
   return alorFetch(
-    `/md/v2/Securities/${encodeURIComponent(symbols)}/quotes`,
+    `/md/v2/Securities/${encodeURIComponent(symbols)}/quotes`, signal,
   );
 }
 

@@ -894,7 +894,7 @@ export function MarketDashboard() {
               </div>
               <div className="text-right text-xs text-slate-400">
                 {data.moexTime && (
-                  <div>Данные MOEX на {data.moexTime.slice(0, 5)} МСК</div>
+                  <div>Котировки на {data.moexTime.slice(0, 5)} МСК</div>
                 )}
                 {cbrDateRu && <div>Курсы ЦБ на {cbrDateRu}</div>}
               </div>
@@ -1082,7 +1082,7 @@ export function MarketDashboard() {
             <footer
               className={`border-t border-slate-800 text-xs text-slate-500 ${dense ? "mt-3 pt-2" : "mt-5 pt-3"}`}
             >
-              Источники: Московская биржа (ISS), ЦБ РФ · Не является
+              Источники: Т-Инвестиции, Алор, Московская биржа (ISS), ЦБ РФ · Не является
               индивидуальной инвестиционной рекомендацией · Сформировано в{" "}
               {genTime}
             </footer>
