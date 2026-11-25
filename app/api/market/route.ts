@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { restoreMissing } from "@/lib/moex/snapshot";
 import { getCache } from "@vercel/functions";
-import { lastCloseInDay, previousMoscowDay } from "@/lib/moex/calendar";
+import { lastCandleBefore, previousMoscowDay } from "@/lib/moex/calendar";
 import { NextResponse } from "next/server";
 import { fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { mergeQuoteRows, validPrice, type ProviderQuote } from "@/lib/moex/quote-priority";
@@ -230,25 +230,35 @@ const calendarClose = unstable_cache(async (
   spec: CandleSpec, symbol: string, id: string, today: string,
 ) => {
   const { start, end, day } = previousMoscowDay(today);
-  if (id) {
-    const rows = await hourlyCloses(id, start, end).catch(() => []);
-    const close = lastCloseInDay(rows, start, end);
-    if (close !== null) return close;
+  // 14 суток покрывают длинные праздники; у Алора countBack расширяет
+  // окно к последней сделке даже при длительной приостановке торгов.
+  const from = end - 14 * 86400000;
+  const week = 7 * 86400000;
+  const candidates = id ? await hourlyCloses(id, end - week, end).catch(() => []) : [];
+  if (id && !lastCandleBefore(candidates, end)) {
+    candidates.push(...await hourlyCloses(id, from, end - week).catch(() => []));
   }
-  const params = new URLSearchParams({exchange: "MOEX", symbol, tf: "3600",
+  const primary = lastCandleBefore(candidates, end);
+  if (primary && primary.time >= start) return primary.close;
+
+  const params = new URLSearchParams({exchange: "MOEX", symbol, tf: "3600", countBack: "1",
     from: String(start / 1000), to: String(end / 1000 - 1)});
   const alor = await alorFetch("/md/v2/history?" + params, AbortSignal.timeout(2000))
     .catch(() => null) as {history?: {time: number; close: number}[]} | null;
-  const close = lastCloseInDay((alor?.history ?? []).map(r => ({time: r.time * 1000, close: r.close})), start, end);
-  if (close !== null) return close;
-  const url = `https://iss.moex.com/iss/engines/${spec.engine}/markets/${spec.market}/boards/${spec.board}/securities/${encodeURIComponent(symbol)}/candles.json?interval=60&iss.meta=off&candles.columns=begin,close&from=${day}&till=${day}`;
-  const rows = parseIssTable(await fetchJson(url, 1, 2500, 86400), "candles");
-  const last = lastCloseInDay(rows.map(r => ({
-    time: Date.parse(String(r.begin).replace(" ", "T") + "+03:00"), close: Number(r.close),
-  })), start, end);
-  if (last === null) throw new Error("Нет цены за вчера");
-  return last;
-}, ["market-calendar-close-v1"], { revalidate: 86400 });
+  for (const row of alor?.history ?? []) candidates.push({time: row.time * 1000, close: row.close});
+  const broker = lastCandleBefore(candidates, end);
+  if (broker && broker.time >= start) return broker.close;
+
+  const firstDay = new Date(from + 10800000).toISOString().slice(0, 10);
+  const url = `https://iss.moex.com/iss/engines/${spec.engine}/markets/${spec.market}/boards/${spec.board}/securities/${encodeURIComponent(symbol)}/candles.json?interval=60&iss.meta=off&candles.columns=begin,close&from=${firstDay}&till=${day}`;
+  const rows = parseIssTable(await fetchJson(url, 1, 2500, 86400).catch(() => null), "candles");
+  for (const row of rows) candidates.push({
+    time: Date.parse(String(row.begin).replace(" ", "T") + "+03:00"), close: Number(row.close),
+  });
+  const last = lastCandleBefore(candidates, end);
+  if (!last) throw new Error("Нет свечей до начала сегодняшнего дня");
+  return last.close;
+}, ["market-calendar-close-v2"], { revalidate: 86400 });
 
 async function applyCalendarChange(
   body: MarketResponse, fortsAllJson: unknown, instruments: Map<string,string>, today: string, deadline: number,

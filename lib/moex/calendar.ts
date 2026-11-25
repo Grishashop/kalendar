@@ -5,14 +5,14 @@ export function previousMoscowDay(today: string) {
   return { start, end, day: new Date(start + 10800000).toISOString().slice(0, 10) };
 }
 
-export function lastCloseInDay(rows: { time: number; close: number }[], start: number, end: number) {
+export function lastCandleBefore(rows: { time: number; close: number }[], end: number) {
   let latest = -Infinity;
-  let close: number | null = null;
+  let candle: { time: number; close: number } | null = null;
   for (const row of rows) {
-    if (row.time >= start && row.time < end && row.time > latest && Number.isFinite(row.close) && row.close !== 0) {
+    if (row.time < end && row.time > latest && Number.isFinite(row.close) && row.close !== 0) {
       latest = row.time;
-      close = row.close;
+      candle = row;
     }
   }
-  return close;
+  return candle;
 }
