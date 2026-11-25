@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Coins, Droplet, Flame, Landmark, Globe, RotateCcw, PauseCircle } from "lucide-react";
+import { restoreMissing } from "@/lib/moex/snapshot";
 import type { MarketResponse, Quote, IndexQuote } from "@/app/api/market/route";
 
 // Фиксированная тёмная тема финансового терминала. Внутри «зоны скриншота»
@@ -320,7 +321,7 @@ function IndexCard({
         ? "#34d399"
         : "#f87171";
   return (
-    <div
+    <div title={quoteInfo(q)}
       className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-3" : "p-5"}`}
     >
       <div
@@ -331,7 +332,7 @@ function IndexCard({
             className={`flex items-center gap-1.5 text-slate-400 ${compact ? "text-xs" : "text-sm"}`}
           >
             <IndexIcon secid={q.secid} />
-            {q.name}
+            {q.name}{q.cached && <small> · сохранено</small>}
           </div>
           <div
             className={`mt-1 font-bold text-slate-100 ${compact ? "text-2xl" : "text-3xl"}`}
@@ -399,21 +400,28 @@ function orderCommodities(commodities: Quote[]): Quote[] {
   );
 }
 
+function quoteInfo(q: Quote) {
+  const time = q.observedAt ?? q.receivedAt;
+  return [q.cached && "Последние доступные данные", q.source, time &&
+    (q.observedAt ? "Цена на " : "Получено ") + new Date(time).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " МСК"
+  ].filter(Boolean).join(" · ");
+}
+
 function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
   return (
-    <div
+    <div title={quoteInfo(q)}
       className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-2" : "p-3"}`}
     >
       <div
         className="flex min-h-12 items-start gap-1.5 text-xs leading-4 text-slate-400"
-        title={q.name}
+        title={quoteInfo(q)}
       >
         <span className="mt-0.5 flex shrink-0 items-center gap-1">
           <CurrencyFlag secid={q.secid} />
           <CommodityIcon name={q.name} />
         </span>
         <span className="min-w-0 break-words">
-          {q.name}
+          {q.name}{q.cached && <small> · сохранено</small>}
           {q.contract && <span className="text-slate-500"> · {q.contract}</span>}
         </span>
       </div>
@@ -461,11 +469,11 @@ function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
   // Компактно: одна строка без полоски — минимум высоты, максимум плотности.
   if (compact) {
     return (
-      <div className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+      <div title={quoteInfo(q)} className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <StockLogo secid={q.secid} compact />
           <span className="truncate text-sm font-medium text-slate-100">
-            {q.name}
+            {q.name}{q.cached && <small> · сохранено</small>}
           </span>
           <span className="text-[10px] text-slate-500">{q.secid}</span>
         </div>
@@ -490,12 +498,12 @@ function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
         ? "bg-emerald-400"
         : "bg-red-400";
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+    <div title={quoteInfo(q)} className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
       <StockLogo secid={q.secid} compact={false} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="truncate font-medium text-slate-100">
-            {q.name}
+            {q.name}{q.cached && <small> · сохранено</small>}
           </span>
           <span className="text-xs text-slate-500">{q.secid}</span>
         </div>
@@ -525,11 +533,11 @@ function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
 // другие единицы, а у общего топа по всем активам мы их не знаем).
 function VolumeRow({ q }: { q: Quote }) {
   return (
-    <div className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
+    <div title={quoteInfo(q)} className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
       <div className="flex min-w-0 items-center gap-1.5">
         <StockLogo secid={q.secid} compact />
         <span className="truncate text-sm font-medium text-slate-100">
-          {q.name}
+          {q.name}{q.cached && <small> · сохранено</small>}
         </span>
         <span className="text-[10px] text-slate-500">
           {q.contract ?? q.secid}
@@ -596,6 +604,12 @@ export function MarketDashboard() {
           throw new Error(json.error ?? "Ошибка загрузки");
         }
         const md = json as MarketResponse;
+        try {
+          const key = "market-calendar-v1:" + scope;
+          const stored = localStorage.getItem(key);
+          if (stored) restoreMissing(md, JSON.parse(stored));
+          localStorage.setItem(key, JSON.stringify(md));
+        } catch { /* Котировки доступны и без хранилища браузера. */ }
         setData(md);
         setDataScope(scope);
         // Перегенерируем комментарий только если пользователь его не правил
@@ -998,6 +1012,7 @@ export function MarketDashboard() {
                 <div>
                   <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
                     Акции · топ-20 по обороту
+                    {data.rankingTimes?.topStocksByVolume && <small className="block normal-case">Рейтинг получен {new Date(data.rankingTimes.topStocksByVolume).toLocaleString("ru-RU", {timeZone:"Europe/Moscow"})} МСК</small>}
                   </h2>
                   {loading && dataScope !== "full" ? (
                     <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
@@ -1017,6 +1032,7 @@ export function MarketDashboard() {
                 <div>
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
                     Фьючерсы · топ-20 по обороту
+                    {data.rankingTimes?.topFuturesByVolume && <small className="block normal-case">Рейтинг получен {new Date(data.rankingTimes.topFuturesByVolume).toLocaleString("ru-RU", {timeZone:"Europe/Moscow"})} МСК</small>}
                   </h2>
                   <p className="mb-2 text-[11px] text-slate-500">
                     Цена контракта как на бирже, без приведения к споту

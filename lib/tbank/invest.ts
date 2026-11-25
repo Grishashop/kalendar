@@ -423,3 +423,13 @@ export async function getTBankPrices(ids: string[]): Promise<Map<string, Provide
   }
   return prices;
 }
+
+export async function hourlyCloses(id: string, start: number, end: number) {
+  const response = await tbankFetch("GetCandles", {
+    instrumentId: id, from: new Date(start).toISOString(),
+    to: new Date(end).toISOString(), interval: "CANDLE_INTERVAL_HOUR",
+  }, "MarketDataService", true) as {
+    candles?: { time: string; close?: {units?: string; nano?: number} }[];
+  };
+  return (response.candles ?? []).map(c => ({time: Date.parse(c.time), close: moneyValueToNumber(c.close)}));
+}

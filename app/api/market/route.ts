@@ -1,8 +1,12 @@
+import { unstable_cache } from "next/cache";
+import { restoreMissing } from "@/lib/moex/snapshot";
+import { getCache } from "@vercel/functions";
+import { lastCloseInDay, previousMoscowDay } from "@/lib/moex/calendar";
 import { NextResponse } from "next/server";
 import { fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { mergeQuoteRows, validPrice, type ProviderQuote } from "@/lib/moex/quote-priority";
-import { getMarketInstruments, getTBankPrices, TICKER_TO_TBANK_UID } from "@/lib/tbank/invest";
-import { getQuotes as getAlorQuotes } from "@/lib/ticker/alor";
+import { hourlyCloses, getMarketInstruments, getTBankPrices, TICKER_TO_TBANK_UID } from "@/lib/tbank/invest";
+import { alorFetch, getQuotes as getAlorQuotes } from "@/lib/ticker/alor";
 import { SECTOR_GROUPS } from "@/lib/moex/sectors";
 
 // Дашборд «Российский рынок»: агрегирует котировки из открытых источников
@@ -26,7 +30,7 @@ export const dynamic = "force-dynamic";
 // vercel.json ("regions"), route-level preferredRegion — no-op без runtime="edge".
 // Запас по времени: 9 внешних запросов параллельно, с ретраями. Без этого
 // дефолтный лимит функции мог бы обрывать медленные ретраи.
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 // --- Контракт ответа (его же использует клиент) ---
 
@@ -39,6 +43,10 @@ export interface Quote {
   high: number | null;
   low: number | null;
   unit: string;
+  source?: string;
+  observedAt?: string;
+  receivedAt?: string;
+  cached?: boolean;
   contract?: string; // краткое имя фьючерсного контракта (для сырья — сама котировка это фьючерс)
   future?: FutureInfo | null; // ближайший фьючерс рядом со спот-значением (валюты)
   // Официальный курс ЦБ РФ — заполнено только когда основное значение
@@ -77,6 +85,8 @@ export interface SectorGroup {
 }
 
 export interface MarketResponse {
+  calendarDay?: string;
+  rankingTimes?: Record<string, string>;
   indices: IndexQuote[];
   stocks: Quote[];
   commodities: Quote[];
@@ -202,23 +212,6 @@ function nowMsk(): string {
   return now.toISOString().slice(11, 19);
 }
 
-// --- Коррекция % изменения для сессий выходного дня ---
-//
-// С 2024 года MOEX проводит торги по субботам/воскресеньям для акций TQBR,
-// индекса IMOEX и части FORTS-фьючерсов. Но официальное "предыдущее
-// закрытие" (PREVPRICE у бумаг — источник LASTTOPREVPRICE/LASTCHANGEPRC)
-// в выходные не обновляется: расчётный торговый день у биржи закрывается
-// только в понедельник. Поэтому в выходные % изменения из ISS посчитан от
-// закрытия ПЯТНИЦЫ, хотя в субботу/воскресенье уже прошли реальные сделки
-// (проверено на живых данных: PREVDATE у SBER в воскресенье оставался
-// пятничным при полноценной субботней сессии).
-//
-// Пересчитываем сами: берём close последнего часового бара строго до
-// сегодняшней даты (МСК) — для акций/IMOEX это совпадает с официальным
-// закрытием субботы, а для RTSI/FORTS/биржевого юаня (у них своей дневной
-// свечи в выходные не бывает) это лучшее доступное приближение. Если
-// подходящего бара нет (нет сделок с пятницы) — % изменения не трогаем.
-
 interface CandleSpec {
   engine: string;
   market: string;
@@ -233,124 +226,35 @@ const INDEX_SPEC: Record<string, CandleSpec> = {
   RTSI: { engine: "stock", market: "index", board: "RTSI" },
 };
 
-// Раньше искали последний бар СТРОГО ДО "сегодня" по часам — и это ломалось
-// ровно в окне между закрытием сессии и полуночью/началом новой сессии:
-// "сегодня" (по календарю) уже наступило, а торгов ещё не было, поэтому
-// "последний бар до сегодня" оказывался тем же самым баром, что и текущая
-// LAST-цена — сравнение с самим собой давало ровно 0% (живой пример:
-// SBER показывал 0,0% в 00:33 вторника, хотя по факту цена не менялась
-// с закрытия понедельника 23:50, и сравнивать нужно было с закрытием
-// ВОСКРЕСЕНЬЯ, а не с "сегодня").
-//
-// Правильный якорь — не часы, а САМИ ДАННЫЕ: берём дату последнего бара
-// в свечах (последний торговый день, за который вообще есть данные —
-// это и есть день, к которому относится текущая LAST), и ищем закрытие
-// последнего бара СТРОГО ДО этого дня. Не зависит от того, идут ли
-// торги прямо сейчас: работает и в разгар обычной сессии (последний
-// день в данных — сегодня, ищем вчера), и в паузе между сессиями
-// (последний день в данных — вчера/пятница/когда угодно, ищем день
-// перед ним) — без угадывания даты по UPDATETIME (у MOEX это только
-// HH:MM:SS, без даты, так что читать "дату LAST" напрямую неоткуда).
-function closeBeforeLastTradingDay(rows: Record<string, unknown>[]): number | null {
-  if (rows.length === 0) return null;
-  const lastDay = String(rows[rows.length - 1]["begin"]).slice(0, 10);
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const day = String(rows[i]["begin"]).slice(0, 10);
-    if (day < lastDay) return num(rows[i]["close"]);
+const calendarClose = unstable_cache(async (
+  spec: CandleSpec, symbol: string, id: string, today: string,
+) => {
+  const { start, end, day } = previousMoscowDay(today);
+  if (id) {
+    const rows = await hourlyCloses(id, start, end).catch(() => []);
+    const close = lastCloseInDay(rows, start, end);
+    if (close !== null) return close;
   }
-  return null;
-}
+  const params = new URLSearchParams({exchange: "MOEX", symbol, tf: "3600",
+    from: String(start / 1000), to: String(end / 1000 - 1)});
+  const alor = await alorFetch("/md/v2/history?" + params, AbortSignal.timeout(2000))
+    .catch(() => null) as {history?: {time: number; close: number}[]} | null;
+  const close = lastCloseInDay((alor?.history ?? []).map(r => ({time: r.time * 1000, close: r.close})), start, end);
+  if (close !== null) return close;
+  const url = `https://iss.moex.com/iss/engines/${spec.engine}/markets/${spec.market}/boards/${spec.board}/securities/${encodeURIComponent(symbol)}/candles.json?interval=60&iss.meta=off&candles.columns=begin,close&from=${day}&till=${day}`;
+  const rows = parseIssTable(await fetchJson(url, 1, 2500, 86400), "candles");
+  const last = lastCloseInDay(rows.map(r => ({
+    time: Date.parse(String(r.begin).replace(" ", "T") + "+03:00"), close: Number(r.close),
+  })), start, end);
+  if (last === null) throw new Error("Нет цены за вчера");
+  return last;
+}, ["market-calendar-close-v1"], { revalidate: 86400 });
 
-// Раньше все ~50-70 инструментов запускались одним Promise.allSettled
-// сразу — сами эти 50-70 одновременных соединений на iss.moex.com (поверх
-// первой волны из 9 параллельных запросов чуть выше в GET()) и оказались
-// причиной массовых ConnectTimeoutError, воспроизведённых вживую при
-// повторных нагрузочных прогонах: после них IMOEX периодически откатывался
-// на исходное значение MOEX (снова от пятницы) — не из-за логики
-// пересчёта, а потому что сам запрос свечи для него не успевал выполниться.
-// Живой пример поймали СНОВА уже после фикса: SBER/VTBR показали -6,8%/
-// -5,9% (сырое значение MOEX от пятницы) вместо верных +4,7%/+9,5% —
-// прямая проверка тем же кодом секундами позже дала правильный ответ,
-// то есть коррекция не сломана, а просто ОДНА неудачная попытка на
-// MOEX ISS (флап сети) откатывала на баг, который мы чиним. Раньше
-// сознательно не давали ретрай (боялись повторить шторм соединений),
-// но close-до-последнего-торгового-дня — стабильные данные (не меняются
-// до следующего закрытия сессии), поэтому кэшируем их на 5 минут
-// (next.revalidate), а не на 8с как реалтайм-котировки: большинство
-// повторных кликов вообще не бьёт по MOEX заново, и это освобождает
-// бюджет на второй запрос при неудаче первого.
-async function weekendPrevClose(
-  spec: CandleSpec,
-  secid: string,
-  from: string,
-): Promise<number | null> {
-  try {
-    const url =
-      `https://iss.moex.com/iss/engines/${spec.engine}/markets/${spec.market}/boards/${spec.board}` +
-      `/securities/${encodeURIComponent(secid)}/candles.json` +
-      `?interval=60&iss.meta=off&candles.columns=close,begin&from=${from}`;
-    const json = await fetchJson(url, 2, 4000, 300);
-    return closeBeforeLastTradingDay(parseIssTable(json, "candles"));
-  } catch {
-    return null;
-  }
-}
-
-const CANDLE_CONCURRENCY = 10;
-const CANDLE_BUDGET_MS = 10000;
-
-// Пул из `limit` воркеров разбирает `jobs` по очереди, пока не кончится
-// список или не истечёт общий бюджет времени. IMOEX/RTSI кладём в начало
-// jobs (см. ниже) — они самые заметные на дашборде и самые дешёвые (2 из
-// 50-70), поэтому должны успеть даже если бюджет исчерпается на хвосте
-// списка (акции топ-20 по обороту, дальние фьючерсы).
-async function weekendPrevCloseBatch(
-  jobs: { secid: string; spec: CandleSpec }[],
-  from: string,
-): Promise<Map<string, number>> {
-  const prevClose = new Map<string, number>();
-  const deadline = Date.now() + CANDLE_BUDGET_MS;
-  let next = 0;
-  async function worker(): Promise<void> {
-    while (next < jobs.length && Date.now() < deadline) {
-      const job = jobs[next++];
-      const v = await weekendPrevClose(job.spec, job.secid, from);
-      if (v !== null) prevClose.set(job.secid, v);
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(CANDLE_CONCURRENCY, jobs.length) }, worker),
-  );
-  return prevClose;
-}
-
-// Пересчитывает changePct у всех котировок в body от закрытия торгового
-// дня перед последним днём с данными (см. комментарий у
-// closeBeforeLastTradingDay). Теперь это единственный источник changePct —
-// собственному полю MOEX (LASTTOPREVPRICE/LASTCHANGEPRC) больше не
-// доверяем вообще, оно систематически ломалось в выходные/понедельник/
-// паузу между сессиями. Мутирует body на месте. fortsAllJson — сырой
-// ответ URL_FORTS_ALL: источник нескейленных цен для embedded FutureInfo
-// (у них last уже поделён на scale, но % от этого не зависит — делим
-// одинаково масштабированные last/prevClose).
-async function applyWeekendCorrection(
-  body: MarketResponse,
-  fortsAllJson: unknown,
-  referenceDate: string | undefined,
-): Promise<void> {
-  // from — старт окна для запроса свечей (не для сравнения, см. выше):
-  // PREVDATE у MOEX, если известен, иначе 10 дней назад по умолчанию.
-  // Самошкалируется — 2-3 дня на обычные выходные, сколько угодно на
-  // длинную приостановку торгов (а там строк всё равно мало — торгов-то
-  // не было), без риска молчаливой обрезки MOEX ISS ответа на 500 строк
-  // (живой пример был: 45 дней вместо PREVDATE-якоря унесли самые свежие
-  // данные за пределы лимита и посчитали коррекцию по стародавним ценам).
-  const fromDate = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  fromDate.setUTCDate(fromDate.getUTCDate() - 10);
-  const from = referenceDate ?? fromDate.toISOString().slice(0, 10);
-
+async function applyCalendarChange(
+  body: MarketResponse, fortsAllJson: unknown, instruments: Map<string,string>, today: string, deadline: number,
+) {
   const stockSecids = new Set<string>([
-    ...STOCK_TICKERS,
+    ...body.stocks.map(q => q.secid),
     ...body.topStocksByVolume.map((q) => q.secid),
     ...body.sectorStocks.flatMap((g) => g.quotes.map((q) => q.secid)),
   ]);
@@ -363,18 +267,22 @@ async function applyWeekendCorrection(
   const indexSecids = body.indices
     .map((q) => (q.secid === "IMOEX" ? "IMOEX2" : q.secid))
     .filter((s) => s in INDEX_SPEC);
-  const cnySecids = body.currencies.some((q) => q.secid === "CNYRUB_TOM")
-    ? ["CNYRUB_TOM"]
-    : [];
-
-  const jobs: { secid: string; spec: CandleSpec }[] = [
-    ...indexSecids.map((secid) => ({ secid, spec: INDEX_SPEC[secid] })),
-    ...[...stockSecids].map((secid) => ({ secid, spec: TQBR_SPEC })),
-    ...cnySecids.map((secid) => ({ secid, spec: CETS_SPEC })),
-    ...[...futuresSecids].map((secid) => ({ secid, spec: FORTS_SPEC })),
+  const jobs = [
+    ...indexSecids.map(secid => ({secid, spec: INDEX_SPEC[secid]})),
+    ...body.currencies.filter(q => !q.secid.endsWith("_CBR")).map(q => ({secid: q.secid, spec: CETS_SPEC})),
+    ...[...stockSecids].map(secid => ({secid, spec: TQBR_SPEC})),
+    ...[...futuresSecids].map(secid => ({secid, spec: FORTS_SPEC})),
   ];
-
-  const prevClose = await weekendPrevCloseBatch(jobs, from);
+  const prevClose = new Map<string, number>();
+  let next = 0;
+  async function worker() {
+    while (next < jobs.length && Date.now() < deadline) {
+      const { secid, spec } = jobs[next++];
+      const price = await calendarClose(spec, secid, instruments.get(secid) ?? "", today).catch(() => null);
+      if (price !== null) prevClose.set(secid, price);
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(12, jobs.length)}, worker));
 
   // Нескейленный текущий last для фьючерсов — из ALL-фьючерсов JSON,
   // покрывает любой контракт вплоть до попавших в топ-20 по обороту.
@@ -392,7 +300,7 @@ async function applyWeekendCorrection(
     rawLast: number | null,
   ): void => {
     const prev = prevClose.get(secid);
-    if (prev === undefined || prev === 0 || rawLast === null) return;
+    if (prev === undefined || rawLast === null) { target.changePct = null; return; }
     target.changePct = ((rawLast - prev) / prev) * 100;
   };
 
@@ -410,7 +318,7 @@ async function applyWeekendCorrection(
     }
   });
   body.currencies.forEach((q) => {
-    applyPct(q, q.secid, q.last);
+    if (!q.secid.endsWith("_CBR")) applyPct(q, q.secid, q.last);
     if (q.future) {
       applyPct(q.future, q.future.secid, rawFuturesLast.get(q.future.secid) ?? null);
     }
@@ -722,7 +630,7 @@ const CURRENCY_FUTURES = [
   { asset: "CNY", key: "CNY", scale: 1 },
 ];
 
-function buildCurrencies(cbrJson: unknown, fxTomJson: unknown): Quote[] {
+function buildCurrencies(cbrJson: unknown, fxTomJson: unknown, today: string): Quote[] {
   const out: Quote[] = [];
   const valute = (cbrJson as Record<string, unknown> | null)?.["Valute"] as
     | Record<string, { Value?: number; Previous?: number }>
@@ -737,7 +645,12 @@ function buildCurrencies(cbrJson: unknown, fxTomJson: unknown): Quote[] {
     if (value === null) return null;
     const changePct =
       prev !== null && prev !== 0 ? ((value - prev) / prev) * 100 : null;
-    return { value, changePct };
+    const dates = cbrJson as { Date?: string; PreviousDate?: string };
+    const yesterday = previousMoscowDay(today).day;
+    const date = dates.Date?.slice(0, 10);
+    // Официальный курс действует до следующего опубликованного курса.
+    return { value, changePct: date && date <= yesterday ? 0 :
+      date === today && dates.PreviousDate && dates.PreviousDate.slice(0,10) <= yesterday ? changePct : null };
   };
 
   const fxTomRows = parseIssTable(fxTomJson, "marketdata");
@@ -835,6 +748,10 @@ export async function GET(request: Request) {
   const startedAt = Date.now();
   const today = todayMsk();
   const fullScope = new URL(request.url).searchParams.get("scope") === "full";
+  const cache = getCache({namespace: "market-calendar-v1"});
+  const cacheKey = fullScope ? "full" : "compact";
+  const previousRequest = cache.get(cacheKey).then(async value =>
+    value ?? await cache.get(fullScope ? "compact" : "full")).catch(() => null);
   const [
     indicesR,
     stocksR,
@@ -872,9 +789,11 @@ export async function GET(request: Request) {
   const fortsRaw = val(fortsR);
   const topFuturesRaw = val(topFuturesR);
 
+  const previous = await previousRequest as MarketResponse | null;
   const instruments = new Map<string, string>();
   const stockSymbols = new Set(STOCK_TICKERS);
   if (fullScope) {
+    for (const q of previous?.topStocksByVolume ?? []) stockSymbols.add(q.secid);
     for (const group of SECTOR_GROUPS) {
       for (const { secid } of group.items) stockSymbols.add(secid);
     }
@@ -926,6 +845,14 @@ export async function GET(request: Request) {
     }
   }
   const futuresIds: string[] = [];
+  for (const q of previous?.topFuturesByVolume ?? []) {
+    if (futures.has(q.secid)) rankedFutures.add(q.secid);
+    else {
+      const id = q.secid + "_SPBFUT";
+      instruments.set(q.secid, id);
+      futuresIds.push(id);
+    }
+  }
   const futuresUids = new Map((val(futuresCatalogR) ?? [])
     .filter((contract) => contract.classCode === "SPBFUT")
     .map((contract) => [contract.ticker, contract.uid]));
@@ -966,16 +893,6 @@ export async function GET(request: Request) {
   const topStocksJson = merge(topStocksRaw, [...stockSymbols]);
   const topFuturesJson = merge(topFuturesRaw, [...futures.keys()], "LAST", [...futures.values()]);
 
-  if (
-    cbrJson === null &&
-    [indicesJson, stocksJson, fortsJson, fxTomJson].every((json) => json.marketdata.data.length === 0)
-  ) {
-    return NextResponse.json(
-      { error: "Не удалось получить данные" },
-      { status: 502, headers: { "Cache-Control": "no-store" } },
-    );
-  }
-
   const cbrDate =
     ((cbrJson as Record<string, unknown> | null)?.["Date"] as
       | string
@@ -989,7 +906,7 @@ export async function GET(request: Request) {
   const currencyFutures = fortsJson
     ? buildFuturesMap(fortsJson, CURRENCY_FUTURES)
     : {};
-  const currencies: Quote[] = buildCurrencies(cbrJson, fxTomJson).map((q) => {
+  const currencies: Quote[] = buildCurrencies(cbrJson, fxTomJson, today).map((q) => {
     const code = q.secid.startsWith("USD")
       ? "USD"
       : q.secid.startsWith("EUR")
@@ -1017,44 +934,37 @@ export async function GET(request: Request) {
     alorUsed: alor.size > 0,
   };
 
-  // changePct теперь ВСЕГДА пересчитывается сами (closeBeforeLastTradingDay
-  // в applyWeekendCorrection), а не только когда обнаружен рассинхрон
-  // PREVDATE у MOEX — своему полю LASTTOPREVPRICE/LASTCHANGEPRC MOEX
-  // больше не доверяем вовсе: оно ломалось и в выходные, и в понедельник,
-  // и в паузе между сессиями (PREVDATE у MOEX для TQBR/IMOEX не успевает
-  // прыгать по календарным дням при вечерних/выходных сессиях). Раньше
-  // здесь был гейт "запускать коррекцию только если PREVDATE ≠ вчера" —
-  // сама эта эвристика "вчера" и была источником бага (см. коммит про
-  // 00:33 вторника). closeBeforeLastTradingDay самодостаточна и всегда
-  // даёт корректный результат, гейтить по времени суток незачем.
-  //
-  // stockPrevDate по-прежнему нужен — не для решения "считать или нет",
-  // а как стартовая точка окна запроса свечей (самошкалируется под
-  // длину реальной паузы в торгах, см. комментарий в applyWeekendCorrection).
-  const stockPrevDate = stocksJson
-    ? (parseIssTable(stocksJson, "securities").find(
-        (r) => typeof r["PREVDATE"] === "string",
-      )?.["PREVDATE"] as string | undefined)
-    : undefined;
-
-  // Защита от переполнения maxDuration: если первая волна запросов уже
-  // съела больше COOL_TIME_MS — MOEX сегодня медленный/троттлит, и вторая
-  // волна (пересчёт %) рискует не уложиться в лимит функции и уронить
-  // ВЕСЬ ответ вместо того, чтобы просто оставить часть котировок с
-  // исходным (возможно неточным) значением MOEX. Лучше отдать то, что
-  // уже есть, чем ничего. Обновление и так только по клику "Обновить" —
-  // лишней частоты вызовов, которую раньше экономил гейт по PREVDATE, тут
-  // уже нет.
-  const COOL_TIME_MS = 12000;
-  if (Date.now() - startedAt < COOL_TIME_MS) {
-    // topFuturesR — null в компактном режиме (см. fullScope выше); узкий
-    // fortsJson (уже получен в любом случае) покрывает все контракты,
-    // нужные для commodities/embedded FutureInfo — топ-20 фьючерсов в
-    // компактном виде и так пуст, дополнительные контракты не нужны.
-    await applyWeekendCorrection(body, fullScope ? topFuturesJson : fortsJson, stockPrevDate);
+  const receivedAt = new Date().toISOString();
+  body.calendarDay = today;
+  body.rankingTimes = {};
+  for (const field of ["topStocksByVolume", "topFuturesByVolume"] as const) {
+    if (body[field].length === 20 || (body[field].length && !previous?.[field].length)) {
+      body.rankingTimes[field] = receivedAt;
+    }
+    else if (previous?.rankingTimes?.[field] &&
+      Date.now() - Date.parse(previous.rankingTimes[field]) < 7 * 86400000) {
+      body.rankingTimes[field] = previous.rankingTimes[field];
+      body[field] = previous[field].map(q => {
+        const price = tbank.get(q.secid) ?? alor.get(q.secid);
+        return price ? {...q, last: price.last, open: price.open ?? null, high: price.high ?? null, low: price.low ?? null, cached: false} : {...q, cached: true};
+      });
+    }
   }
-
-  // dynamic = "force-dynamic" выше уже не даёт Next.js кэшировать сам
-  // ответ route handler'а — отдельный Cache-Control тут не нужен.
+  for (const q of [...body.indices, ...body.currencies, ...body.commodities, ...body.stocks,
+    ...body.topStocksByVolume, ...body.topFuturesByVolume, ...body.sectorStocks.flatMap(g => g.quotes)]) {
+    if (q.cached) continue;
+    const id = q.secid === "IMOEX" ? "IMOEX2" : q.secid;
+    const tb = tbank.get(id), broker = alor.get(id);
+    q.source = tb ? "Т-Инвестиции" : broker ? "Алор" : id.endsWith("_CBR") ? "ЦБ" : "Мосбиржа";
+    q.observedAt = tb?.time ?? broker?.time;
+    q.receivedAt = receivedAt;
+  }
+  await applyCalendarChange(body, fullScope ? topFuturesJson : fortsJson, instruments, today, startedAt + 47000);
+  restoreMissing(body, previous);
+  if (!fullScope) body.sectorStocks = [];
+  if (!body.indices.length && !body.stocks.length && !body.currencies.length && !body.commodities.length) {
+    return NextResponse.json({error: "Источники котировок недоступны"}, {status: 502});
+  }
+  await cache.set(cacheKey, body, {ttl: 7 * 86400}).catch(() => undefined);
   return NextResponse.json(body);
 }
