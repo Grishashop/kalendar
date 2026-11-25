@@ -252,55 +252,45 @@ function generateCommentary(data: MarketResponse): string {
 
 // --- Спарклайн ---
 
-function Sparkline({
-  values,
-  color,
-  compact = false,
-}: {
-  values: number[];
-  color: string;
-  compact?: boolean;
-}) {
-  if (values.length < 2) return null;
-  const w = compact ? 90 : 120;
-  const h = compact ? 30 : 40;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const step = w / (values.length - 1);
-  const points = values
-    .map((v, i) => {
-      const x = i * step;
-      const y = h - ((v - min) / range) * h;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
+function IndexChart({ q, values, color }: { q: IndexQuote; values: number[]; color: string }) {
+  const caption = "flex justify-between gap-2 text-[11px] tabular-nums text-slate-400";
+  if (values.length < 2) {
+    const { low, high, last } = q;
+    if (low === null || high === null || last === null || last < low || last > high) return null;
+    const position = high === low ? 50 : 100 * (last - low) / (high - low);
+    return (
+      <figure className="mt-4">
+        <figcaption className={caption}>Диапазон дня</figcaption>
+        <div className="relative my-2.5 mx-1 h-1 rounded-full bg-slate-700">
+          <span className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-900 bg-sky-300 ring-1 ring-sky-300" style={{ left: position + "%" }} />
+        </div>
+        <div className={caption}><span>Мин {fmtNum(low)}</span><span>Макс {fmtNum(high)}</span></div>
+      </figure>
+    );
+  }
+  const base = q.last !== null && q.changePct !== null && q.changePct > -100
+    ? q.last / (1 + q.changePct / 100) : null;
+  const min = Math.min(...values, base ?? Infinity);
+  const max = Math.max(...values, base ?? -Infinity);
+  const y = (v: number) => max === min ? 32 : 58 - 52 * (v - min) / (max - min);
+  const points = values.map((v, i) => `${320 * i / (values.length - 1)},${y(v)}`).join(" ");
   return (
-    <svg
-      width={w}
-      height={h}
-      viewBox={`0 0 ${w} ${h}`}
-      preserveAspectRatio="none"
-      className="shrink-0"
-    >
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth={1.5}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
+    <figure className="mt-3">
+      <figcaption className={caption}><span>Динамика за день</span>{base !== null && <span>┄ Пред. закрытие {fmtNum(base)}</span>}</figcaption>
+      <svg className="mt-1 h-16 w-full" viewBox="0 0 320 64" preserveAspectRatio="none" role="img" aria-label="Внутридневная динамика индекса">
+        {base !== null && <line x1="0" x2="320" y1={y(base)} y2={y(base)} stroke="#64748b" strokeDasharray="3 4" />}
+        <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+    </figure>
   );
 }
 
-// --- Карточки ---
-
 function ChangeBadge({ pct }: { pct: number | null }) {
+  const tiny = pct !== null && pct !== 0 && Math.abs(pct) < 0.05;
   return (
-    <span className={`whitespace-nowrap font-semibold ${changeColor(pct)}`}>
-      {arrow(pct)} {fmtPct(pct)}
+    <span title={pct === null ? undefined : pct.toLocaleString("ru-RU", {maximumSignificantDigits: 8}) + "%"}
+      className={`whitespace-nowrap font-semibold tabular-nums ${tiny ? "text-slate-400" : changeColor(pct)}`}>
+      {tiny ? "< 0,1%" : pct === 0 ? "0,0%" : `${arrow(pct)} ${fmtPct(pct)}`.trim()}
     </span>
   );
 }
@@ -363,13 +353,10 @@ function IndexCard({
             )}
           </div>
         </div>
-        <Sparkline values={spark} color={strokeColor} compact={compact} />
+
       </div>
-      <div
-        className={`text-slate-400 ${compact ? "mt-2 text-[11px]" : "mt-3 text-xs"}`}
-      >
-        Откр {fmtNum(q.open)} · Макс {fmtNum(q.high)} · Мин {fmtNum(q.low)}
-      </div>
+      <IndexChart q={q} values={spark} color={strokeColor} />
+      {q.open !== null && <div className="mt-2 text-[11px] tabular-nums text-slate-400">Открытие {fmtNum(q.open)}</div>}
       {q.future && q.future.last !== null && (
         <div
           className={`flex items-center justify-between gap-2 border-t border-slate-800 ${compact ? "mt-2 pt-2" : "mt-3 pt-3"}`}
@@ -413,7 +400,7 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
       className={`rounded-xl border border-slate-800 bg-slate-900 ${compact ? "p-2" : "p-3"}`}
     >
       <div
-        className="flex min-h-12 items-start gap-1.5 text-xs leading-4 text-slate-400"
+        className="flex min-h-8 items-start gap-1.5 text-xs leading-4 text-slate-400"
         title={quoteInfo(q)}
       >
         <span className="mt-0.5 flex shrink-0 items-center gap-1">
@@ -426,21 +413,19 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
         </span>
       </div>
       <div
-        className={`mt-1 min-h-10 leading-5 font-semibold text-slate-100 ${compact ? "text-base" : "text-lg"}`}
+        className={`mt-2 flex flex-wrap items-baseline gap-x-1 leading-6 font-semibold tabular-nums text-slate-100 ${compact ? "text-base" : "text-lg"}`}
       >
         {fmtNum(q.last)}{" "}
         <span className="text-xs font-normal text-slate-400">{q.unit}</span>
-      </div>
-      <div className={compact ? "text-xs" : "mt-0.5 text-sm"}>
-        <ChangeBadge pct={q.changePct} />
+        <span className="ml-auto text-xs"><ChangeBadge pct={q.changePct} /></span>
       </div>
       {(q.future && q.future.last !== null) || q.cbr ? (
         <div
           className={`mt-1 space-y-0.5 border-t border-slate-800 pt-1 ${compact ? "text-[10px]" : "text-[11px]"}`}
         >
           {q.future && q.future.last !== null && (
-            <div className="flex items-baseline justify-end gap-1.5">
-              <span className="text-slate-400">Фьюч.</span>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-1">
+              <span className="text-slate-400">Фьючерс</span>
               <span
                 className={`font-medium text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
               >
@@ -450,8 +435,8 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
             </div>
           )}
           {q.cbr && (
-            <div className="flex items-baseline justify-end gap-1.5">
-              <span className="text-slate-400">ЦБ</span>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-1">
+              <span className="text-slate-400">Курс ЦБ</span>
               <span
                 className={`font-medium text-slate-200 ${compact ? "text-xs" : "text-sm"}`}
               >
@@ -466,62 +451,17 @@ function MiniCard({ q, compact }: { q: Quote; compact: boolean }) {
 }
 
 function StockRow({ q, compact }: { q: Quote; compact: boolean }) {
-  // Компактно: одна строка без полоски — минимум высоты, максимум плотности.
-  if (compact) {
-    return (
-      <div title={quoteInfo(q)} className="flex items-baseline justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <StockLogo secid={q.secid} compact />
-          <span className="truncate text-sm font-medium text-slate-100">
-            {q.name}{q.cached && <small> · сохранено</small>}
-          </span>
-          <span className="text-[10px] text-slate-500">{q.secid}</span>
-        </div>
-        <div className="flex shrink-0 items-baseline gap-2">
-          <span className="text-sm font-semibold text-slate-100">
-            {fmtNum(q.last)} ₽
-          </span>
-          <span className="text-xs">
-            <ChangeBadge pct={q.changePct} />
-          </span>
-        </div>
-      </div>
-    );
-  }
-  // Расширенно: мини-полоска изменения, ширина ∝ |changePct|, потолок 5%.
-  const magnitude =
-    q.changePct === null ? 0 : Math.min(Math.abs(q.changePct), 5) / 5;
-  const barColor =
-    q.changePct === null || q.changePct === 0
-      ? "bg-slate-600"
-      : q.changePct > 0
-        ? "bg-emerald-400"
-        : "bg-red-400";
   return (
-    <div title={quoteInfo(q)} className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
-      <StockLogo secid={q.secid} compact={false} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="truncate font-medium text-slate-100">
-            {q.name}{q.cached && <small> · сохранено</small>}
-          </span>
-          <span className="text-xs text-slate-500">{q.secid}</span>
-        </div>
-        <div className="mt-1 h-1 w-full overflow-hidden rounded bg-slate-800">
-          <div
-            className={`h-full ${barColor}`}
-            style={{ width: `${magnitude * 100}%` }}
-          />
+    <div title={quoteInfo(q)} className={`grid grid-cols-[minmax(0,1fr)_auto_4.6rem] items-center gap-x-2 rounded-lg border border-slate-800 bg-slate-900 px-3 tabular-nums ${compact ? "py-1.5" : "py-2.5"}`}>
+      <div className="flex min-w-0 items-center gap-2">
+        <StockLogo secid={q.secid} compact={compact} />
+        <div className="min-w-0">
+          <div className="break-words text-sm font-medium text-slate-100">{q.name}</div>
+          <div className="text-[10px] tracking-wide text-slate-400">{q.secid}{q.cached && " · сохранено"}</div>
         </div>
       </div>
-      <div className="shrink-0 text-right">
-        <div className="font-semibold text-slate-100">
-          {fmtNum(q.last)} ₽
-        </div>
-        <div className="text-sm">
-          <ChangeBadge pct={q.changePct} />
-        </div>
-      </div>
+      <span className="whitespace-nowrap text-right text-sm font-semibold">{fmtNum(q.last)} ₽</span>
+      <span className="text-right text-xs"><ChangeBadge pct={q.changePct} /></span>
     </div>
   );
 }
@@ -950,7 +890,7 @@ export function MarketDashboard() {
                 Валюты и сырьё
               </h2>
               {data.currencies.length + data.commodities.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {[...data.currencies, ...orderCommodities(data.commodities)].map(
                     (q) => (
                       <MiniCard key={q.secid} q={q} compact />
