@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { restoreMissing } from "@/lib/moex/snapshot";
 import { getCache } from "@vercel/functions";
-import { lastCandleBefore, previousMoscowDay } from "@/lib/moex/calendar";
+import { lastCandleBefore, previousMoscowDay, quoteSessionDay } from "@/lib/moex/calendar";
 import { NextResponse } from "next/server";
 import { fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { mergeQuoteRows, validPrice, type ProviderQuote } from "@/lib/moex/quote-priority";
@@ -45,6 +45,7 @@ export interface Quote {
   unit: string;
   source?: string;
   observedAt?: string;
+  candleTime?: string;
   receivedAt?: string;
   cached?: boolean;
   contract?: string; // краткое имя фьючерсного контракта (для сырья — сама котировка это фьючерс)
@@ -96,6 +97,7 @@ export interface MarketResponse {
   topFuturesByVolume: Quote[];
   // То же самое разбито по отраслям (см. SECTOR_GROUPS) — для «По отраслям».
   sectorStocks: SectorGroup[];
+  sparkDays?: Partial<Record<"imoex" | "rtsi", string>>;
   sparklines: { imoex: number[]; rtsi: number[] };
   moexTime: string | null;
   cbrDate: string | null;
@@ -260,8 +262,20 @@ const calendarClose = unstable_cache(async (
   return last.close;
 }, ["market-calendar-close-v2"], { revalidate: 86400 });
 
+async function latestSessionDay(symbol: string, id: string | undefined, now: number) {
+  const params = new URLSearchParams({exchange: "MOEX", symbol, tf: "3600", countBack: "1",
+    from: String(Math.floor(now / 1000) - 86400), to: String(Math.floor(now / 1000))});
+  const alor = await alorFetch("/md/v2/history?" + params, AbortSignal.timeout(2000))
+    .catch(() => null) as {history?: {time: number; close: number}[]} | null;
+  const bar = lastCandleBefore((alor?.history ?? []).map(c => ({time: c.time * 1000, close: c.close})), now + 1);
+  if (bar) return quoteSessionDay(bar.time);
+  const rows = id ? await candleCloses(id, now - 7 * 86400000, now).catch(() => []) : [];
+  const latest = lastCandleBefore(rows, now + 1);
+  return latest ? quoteSessionDay(latest.time) : null;
+}
+
 async function applyCalendarChange(
-  body: MarketResponse, fortsAllJson: unknown, instruments: Map<string,string>, today: string, deadline: number,
+  body: MarketResponse, fortsAllJson: unknown, instruments: Map<string,string>, quoteTimes: Map<string, string>, deadline: number,
 ) {
   const stockSecids = new Set<string>([
     ...body.stocks.map(q => q.secid),
@@ -288,7 +302,11 @@ async function applyCalendarChange(
   async function worker() {
     while (next < jobs.length && Date.now() < deadline) {
       const { secid, spec } = jobs[next++];
-      const price = await calendarClose(spec, secid, instruments.get(secid) ?? "", today).catch(() => null);
+      const id = instruments.get(secid);
+      const day = quoteSessionDay(Date.parse(quoteTimes.get(secid) ?? "")) ??
+        await latestSessionDay(secid, id, Date.now());
+      if (!day) continue;
+      const price = await calendarClose(spec, secid, id ?? "", day).catch(() => null);
       if (price !== null) prevClose.set(secid, price);
     }
   }
@@ -305,10 +323,11 @@ async function applyCalendarChange(
   });
 
   const applyPct = (
-    target: { changePct: number | null },
+    target: { changePct: number | null; cached?: boolean },
     secid: string,
     rawLast: number | null,
   ): void => {
+    if (target.cached) return;
     const prev = prevClose.get(secid);
     if (prev === undefined || rawLast === null) { target.changePct = null; return; }
     target.changePct = ((rawLast - prev) / prev) * 100;
@@ -366,7 +385,7 @@ function formatMskDateTime(epochMs: number): string {
 // внутри одного дня (вечерняя сессия) календарной проверкой не поймать.
 const STALE_THRESHOLD_MS = 3 * 60 * 1000;
 
-function buildIndices(json: unknown): Quote[] {
+function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<typeof indexSparkline>>>): Quote[] {
   const rows = parseIssTable(json, "marketdata");
   // secid — внутренний идентификатор для клиента/сопоставления с фьючерсом;
   // source — реальный SECID в ответе ISS. IMOEX2 приходит под своим кодом,
@@ -387,7 +406,15 @@ function buildIndices(json: unknown): Quote[] {
       // Один SECID может прийти с нескольких бордов — берём первую строку с ненулевым CURRENTVALUE.
       const r =
         candidates.find((c) => num(c["CURRENTVALUE"])) ?? candidates[0];
-      if (!r) return null;
+      if (!r || !lastOrNull(r["CURRENTVALUE"])) {
+        const chart = charts[secid];
+        if (!chart?.values.length) return null;
+        return {
+          secid, name: meta[secid].name, last: chart.values[chart.values.length - 1],
+          changePct: null, open: null, high: null, low: null, unit: "п.",
+          source: chart.source + " · закрытие свечи", candleTime: chart.candleTime,
+        };
+      }
       const sysTime =
         typeof r["SYSTIME"] === "string" ? parseMskDateTime(r["SYSTIME"]) : null;
       const staleSince =
@@ -713,25 +740,35 @@ function buildCurrencies(cbrJson: unknown, fxTomJson: unknown, today: string): Q
 async function indexSparkline(symbol: string, id: string, day: string, iss: unknown) {
   const start = Date.parse(day + "T00:00:00+03:00");
   const end = Date.now();
-  function prices(rows: {time: number; close: number}[]) {
-    const unique = new Map<number, number>();
+  function session(source: string, rows: {time: number; close: number}[]) {
+    const groups = new Map<string, Map<number, number>>();
     for (const row of rows) {
-      if (row.time >= start && row.time <= end && Number.isFinite(row.close) && row.close > 0)
-        unique.set(row.time, row.close);
+      if (!Number.isFinite(row.time) || row.time > end || !Number.isFinite(row.close) || row.close <= 0) continue;
+      const date = new Date(row.time + 10800000).toISOString().slice(0, 10);
+      const points = groups.get(date) ?? new Map<number, number>();
+      points.set(row.time, row.close);
+      groups.set(date, points);
     }
-    return [...unique].sort(([a], [b]) => a - b).map(([, close]) => close);
+    for (const date of [...groups.keys()].sort().reverse()) {
+      const points = groups.get(date)!;
+      if (points.size >= 2) return {date, source, candleTime: new Date(Math.max(...points.keys())).toISOString(), values: [...points].sort(([a],[b]) => a-b).map(([,v]) => v)};
+    }
+    return {date: "", source, candleTime: "", values: []};
   }
-  const bank = prices(await candleCloses(id, start, end, "CANDLE_INTERVAL_10_MIN").catch(() => []));
-  if (bank.length >= 2) return bank;
-  const params = new URLSearchParams({exchange: "MOEX", symbol, tf: "600",
+  const bank = session("Т-Инвестиции", await candleCloses(id, start, end, "CANDLE_INTERVAL_10_MIN").catch(() => []));
+  if (bank.date) return bank;
+  const params = new URLSearchParams({exchange: "MOEX", symbol, tf: "600", countBack: "144",
     from: String(start / 1000), to: String(Math.floor(end / 1000))});
   const history = await alorFetch("/md/v2/history?" + params, AbortSignal.timeout(3000))
     .catch(() => null) as {history?: {time: number; close: number}[]} | null;
-  const broker = prices((history?.history ?? []).map(row => ({time: row.time * 1000, close: row.close})));
-  if (broker.length >= 2) return broker;
-  return prices(parseIssTable(iss, "candles").map(row => ({
+  const broker = session("Алор", (history?.history ?? []).map(row => ({time: row.time * 1000, close: row.close})));
+  if (broker.date === day) return broker;
+  const exchange = session("Мосбиржа", parseIssTable(iss, "candles").map(row => ({
     time: Date.parse(String(row.begin).replace(" ", "T") + "+03:00"), close: Number(row.close),
   })));
+  if (exchange.date === day) return exchange;
+  const prior = session("Т-Инвестиции", await candleCloses(id, start - 86400000, start, "CANDLE_INTERVAL_10_MIN").catch(() => []));
+  return [broker, exchange, prior].sort((a,b) => b.date.localeCompare(a.date))[0];
 }
 
 // Максимальное UPDATETIME (HH:MM:SS) среди строк, у которых оно есть.
@@ -771,6 +808,9 @@ function maxUpdateTime(...quoteJsons: unknown[]): string | null {
 // (топ-20 акций + топ-20 фьючерсов + их коррекция). ?scope=full запрашивает
 // клиент только при переключении на расширенный вид — по умолчанию (без
 // параметра) отдаём компактный набор, который загружается заметно быстрее.
+// Локальный dev-сервер может работать без Vercel Runtime Cache.
+const localSnapshots = new Map<string, MarketResponse>();
+
 export async function GET(request: Request) {
   const startedAt = Date.now();
   const today = todayMsk();
@@ -798,8 +838,8 @@ export async function GET(request: Request) {
     fetchJson(URL_FORTS, 2, 3000),
     fetchJson(URL_CBR, 2, 3000),
     fetchJson(URL_FX_TOM, 2, 3000),
-    fetchJson(candlesUrl("SNDX", "IMOEX2", today), 1, 3000),
-    fetchJson(candlesUrl("RTSI", "RTSI", today), 1, 3000),
+    fetchJson(candlesUrl("SNDX", "IMOEX2", previousMoscowDay(today).day), 1, 3000),
+    fetchJson(candlesUrl("RTSI", "RTSI", previousMoscowDay(today).day), 1, 3000),
     fullScope ? fetchJson(URL_STOCKS_ALL, 2, 3000) : Promise.resolve(null),
     fullScope ? fetchJson(URL_FORTS_ALL, 2, 3000) : Promise.resolve(null),
     getMarketInstruments("Futures"),
@@ -816,7 +856,8 @@ export async function GET(request: Request) {
   const fortsRaw = val(fortsR);
   const topFuturesRaw = val(topFuturesR);
 
-  const previous = await previousRequest as MarketResponse | null;
+  const previous = (await previousRequest as MarketResponse | null) ??
+    localSnapshots.get(cacheKey) ?? localSnapshots.get(fullScope ? "compact" : "full");
   const instruments = new Map<string, string>();
   const stockSymbols = new Set(STOCK_TICKERS);
   if (fullScope) {
@@ -929,9 +970,10 @@ export async function GET(request: Request) {
       | string
       | undefined) ?? null;
 
+  const [imoex, rtsi] = await charts;
   const indexFutures = fortsJson ? buildFuturesMap(fortsJson, INDEX_FUTURES) : {};
   const indices: IndexQuote[] = (
-    indicesJson ? buildIndices(indicesJson) : []
+    buildIndices(indicesJson, { IMOEX: imoex, RTSI: rtsi })
   ).map((q) => ({ ...q, future: indexFutures[q.secid] ?? null }));
 
   const currencyFutures = fortsJson
@@ -948,7 +990,6 @@ export async function GET(request: Request) {
     return { ...q, future: code ? (currencyFutures[code] ?? null) : null };
   });
 
-  const [imoex, rtsi] = await charts;
   const body: MarketResponse = {
     indices,
     stocks: buildStocks(stocksJson).filter((quote) => quote.last !== null),
@@ -957,7 +998,8 @@ export async function GET(request: Request) {
     topStocksByVolume: fullScope ? buildTopStocks(topStocksJson) : [],
     topFuturesByVolume: fullScope ? buildTopFutures(topFuturesJson) : [],
     sectorStocks: fullScope ? buildSectorStocks(topStocksJson) : [],
-    sparklines: { imoex, rtsi },
+    sparklines: { imoex: imoex.values, rtsi: rtsi.values },
+    sparkDays: { imoex: imoex.date, rtsi: rtsi.date },
     moexTime: maxUpdateTime(indicesJson, stocksJson),
     cbrDate,
     alorUsed: alor.size > 0,
@@ -984,16 +1026,24 @@ export async function GET(request: Request) {
     if (q.cached) continue;
     const id = q.secid === "IMOEX" ? "IMOEX2" : q.secid;
     const tb = tbank.get(id), broker = alor.get(id);
-    q.source = tb ? "Т-Инвестиции" : broker ? "Алор" : id.endsWith("_CBR") ? "ЦБ" : "Мосбиржа";
+    q.source ??= tb ? "Т-Инвестиции" : broker ? "Алор" : id.endsWith("_CBR") ? "ЦБ" : "Мосбиржа";
     q.observedAt = tb?.time ?? broker?.time;
     q.receivedAt = receivedAt;
   }
-  await applyCalendarChange(body, fullScope ? topFuturesJson : fortsJson, instruments, today, startedAt + 47000);
+  const quoteTimes = new Map<string, string>();
+  for (const [id, quote] of [...alor, ...tbank]) {
+    if (quote.time) quoteTimes.set(id, quote.time);
+  }
+  for (const q of body.indices) {
+    if (q.candleTime) quoteTimes.set(q.secid === "IMOEX" ? "IMOEX2" : q.secid, q.candleTime);
+  }
+  await applyCalendarChange(body, fullScope ? topFuturesJson : fortsJson, instruments, quoteTimes, startedAt + 44000);
   restoreMissing(body, previous);
   if (!fullScope) body.sectorStocks = [];
   if (!body.indices.length && !body.stocks.length && !body.currencies.length && !body.commodities.length) {
     return NextResponse.json({error: "Источники котировок недоступны"}, {status: 502});
   }
+  if (process.env.NODE_ENV === "development") localSnapshots.set(cacheKey, body);
   await cache.set(cacheKey, body, {ttl: 7 * 86400}).catch(() => undefined);
   return NextResponse.json(body);
 }

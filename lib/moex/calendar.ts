@@ -16,3 +16,10 @@ export function lastCandleBefore(rows: { time: number; close: number }[], end: n
   }
   return candle;
 }
+
+// Дата сделки, а не запроса: после полуночи последняя цена всё ещё
+// относится к предыдущей сессии.
+export function quoteSessionDay(time: number): string | null {
+  if (!Number.isFinite(time) || time <= 0) return null;
+  return new Date(time + 10800000).toISOString().slice(0, 10);
+}

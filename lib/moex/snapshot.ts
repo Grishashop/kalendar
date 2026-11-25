@@ -2,22 +2,28 @@ import type { MarketResponse, Quote } from "../../app/api/market/route";
 
 export function restoreMissing(fresh: MarketResponse, previous?: MarketResponse | null) {
   if (!previous) return fresh;
-  const sameDay = fresh.calendarDay === previous.calendarDay;
-  if (sameDay && fresh.calendarDay) {
-    for (const index of ["imoex", "rtsi"] as const) {
-      if (fresh.sparklines[index].length < 2 && previous.sparklines[index].length >= 2)
-        fresh.sparklines[index] = previous.sparklines[index];
+  for (const index of ["imoex", "rtsi"] as const) {
+    const priorDay = previous.sparkDays?.[index] ?? previous.calendarDay;
+    const freshDay = fresh.sparkDays?.[index] ?? fresh.calendarDay;
+    if (priorDay && previous.sparklines[index].length >= 2 &&
+      (fresh.sparklines[index].length < 2 || (freshDay && priorDay > freshDay))) {
+      fresh.sparklines[index] = previous.sparklines[index];
+      (fresh.sparkDays ??= {})[index] = priorDay;
     }
   }
   function combine<T extends Quote>(current: T[], old: T[], key = (q: T) => q.secid) {
     const result = current.filter(q => q.last !== null);
+    // Повтор той же сделки при временно недоступной истории свечей.
+    for (const q of result) {
+      if (q.changePct !== null || !q.observedAt) continue;
+      const prior = old.find(row => row.secid === q.secid && row.observedAt === q.observedAt && row.last === q.last);
+      if (prior) q.changePct = prior.changePct;
+    }
     const keys = new Set(result.map(key));
     for (const q of old) {
       if (keys.has(key(q)) || q.last === null || !q.receivedAt ||
           Date.now() - Date.parse(q.receivedAt) > 7 * 86400000) continue;
-      result.push({ ...q, cached: true, changePct: sameDay ? q.changePct : null,
-        future: q.future && {...q.future, changePct: sameDay ? q.future.changePct : null},
-        cbr: q.cbr && {...q.cbr, changePct: sameDay ? q.cbr.changePct : null} });
+      result.push({ ...q, cached: true });
     }
     return result;
   }

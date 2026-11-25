@@ -26,3 +26,15 @@ test("uses a weekend session when it is more recent than Friday", () => {
     {time: end + 3600000, close: 120},
   ], end)?.close, 100);
 });
+
+test("overnight a stock retains its last session until the first new trade", async () => {
+  const {quoteSessionDay} = await import("../lib/moex/calendar.ts");
+  const session = quoteSessionDay(Date.parse("2026-11-25T23:49:59+03:00"))!;
+  const candles = [
+    {time: Date.parse("2026-11-24T23:00:00+03:00"), close:100},
+    {time: Date.parse("2026-11-25T23:00:00+03:00"), close:104},
+  ];
+  assert.equal(lastCandleBefore(candles,previousMoscowDay(session).end)?.close,100);
+  const next = quoteSessionDay(Date.parse("2026-11-26T07:00:01+03:00"))!;
+  assert.equal(lastCandleBefore(candles,previousMoscowDay(next).end)?.close,104);
+});

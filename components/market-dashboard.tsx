@@ -254,35 +254,38 @@ function generateCommentary(data: MarketResponse): string {
 
 // --- Спарклайн ---
 
-function IndexChart({ q, values, color }: { q: IndexQuote; values: number[]; color: string }) {
-  const caption = "flex justify-between gap-2 text-[11px] tabular-nums text-slate-400";
-  if (values.length < 2) {
-    const { low, high, last } = q;
-    if (low === null || high === null || last === null || last < low || last > high) return null;
-    const position = high === low ? 50 : 100 * (last - low) / (high - low);
-    return (
-      <figure className="mt-4">
-        <figcaption className={caption}>Диапазон дня</figcaption>
-        <div className="relative my-2.5 mx-1 h-1 rounded-full bg-slate-700">
-          <span className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-900 bg-sky-300 ring-1 ring-sky-300" style={{ left: position + "%" }} />
-        </div>
-        <div className={caption}><span>Мин {fmtNum(low)}</span><span>Макс {fmtNum(high)}</span></div>
-      </figure>
-    );
-  }
-  const base = q.last !== null && q.changePct !== null && q.changePct > -100
+function IndexChart({ q, values, color, day, historical }: {
+  q: IndexQuote; values: number[]; color: string; day?: string; historical: boolean;
+}) {
+  const line = values.length >= 2;
+  const sessionRange = !historical && q.low !== null && q.high !== null && q.last !== null &&
+    q.low <= q.last && q.last <= q.high;
+  if (!line && !sessionRange) return null;
+  const low = sessionRange ? q.low! : Math.min(...values);
+  const high = sessionRange ? q.high! : Math.max(...values);
+  const last = sessionRange ? q.last! : values[values.length - 1];
+  const position = low === high ? 50 : 100 * (last - low) / (high - low);
+  const base = !historical && q.last !== null && q.changePct !== null && q.changePct > -100
     ? q.last / (1 + q.changePct / 100) : null;
-  const min = Math.min(...values, base ?? Infinity);
-  const max = Math.max(...values, base ?? -Infinity);
+  const min = Math.min(low, ...values, base ?? Infinity);
+  const max = Math.max(high, ...values, base ?? -Infinity);
   const y = (v: number) => max === min ? 32 : 58 - 52 * (v - min) / (max - min);
-  const points = values.map((v, i) => `${320 * i / (values.length - 1)},${y(v)}`).join(" ");
+  const points = values.map((v,i) => `${320*i/(values.length-1)},${y(v)}`).join(" ");
+  const accent = historical ? "#93c5fd" : color;
   return (
-    <figure className="mt-3">
-      <figcaption className={caption}><span>Динамика за день</span>{base !== null && <span>┄ Пред. закрытие {fmtNum(base)}</span>}</figcaption>
-      <svg className="mt-1 h-16 w-full" viewBox="0 0 320 64" preserveAspectRatio="none" role="img" aria-label="Внутридневная динамика индекса">
+    <figure className="mt-3 rounded-lg bg-slate-950/35 px-3 py-2.5 text-[11px] text-slate-400 tabular-nums">
+      <figcaption className="flex flex-wrap justify-between gap-x-2">
+        <span>{line ? "Динамика" : "Диапазон котировки"}{line && day && " · " + new Date(day+"T12:00:00Z").toLocaleDateString("ru-RU",{day:"numeric",month:"long"})}</span>
+        {line && base !== null && <span>┄ Пред. закрытие {fmtNum(base)}</span>}
+      </figcaption>
+      {line && <svg className="my-1 h-16 w-full" viewBox="0 0 320 64" preserveAspectRatio="none" role="img" aria-label="Внутридневная динамика индекса">
         {base !== null && <line x1="0" x2="320" y1={y(base)} y2={y(base)} stroke="#64748b" strokeDasharray="3 4" />}
-        <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-      </svg>
+        <polyline points={points} fill="none" stroke={accent} strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      </svg>}
+      <div title={sessionRange ? "Положение цены в диапазоне котировки" : "Диапазон цен закрытия свечей"} className="relative mx-1 my-2 h-1 rounded-full bg-slate-700">
+        <span style={{left:position+"%",backgroundColor:accent}} className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-slate-900" />
+      </div>
+      <div className="flex justify-between"><span>Мин {fmtNum(low)}</span><span>{!sessionRange && "По свечам"}</span><span>Макс {fmtNum(high)}</span></div>
     </figure>
   );
 }
@@ -300,10 +303,12 @@ function ChangeBadge({ pct }: { pct: number | null }) {
 function IndexCard({
   q,
   spark,
+  day, historical,
   compact,
 }: {
   q: IndexQuote;
   spark: number[];
+  day?: string; historical: boolean;
   compact: boolean;
 }) {
   const strokeColor =
@@ -357,7 +362,7 @@ function IndexCard({
         </div>
 
       </div>
-      <IndexChart q={q} values={spark} color={strokeColor} />
+      <IndexChart q={q} values={spark} color={strokeColor} day={day} historical={historical} />
       {q.open !== null && <div className="mt-2 text-[11px] tabular-nums text-slate-400">Открытие {fmtNum(q.open)}</div>}
       {q.future && q.future.last !== null && (
         <div
@@ -390,9 +395,9 @@ function orderCommodities(commodities: Quote[]): Quote[] {
 }
 
 function quoteInfo(q: Quote) {
-  const time = q.observedAt ?? q.receivedAt;
+  const time = q.candleTime ?? q.observedAt ?? q.receivedAt;
   return [q.cached && "Последние доступные данные", q.source, time &&
-    (q.observedAt ? "Цена на " : "Получено ") + new Date(time).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " МСК"
+    (q.candleTime ? "Начало свечи " : q.observedAt ? "Цена на " : "Получено ") + new Date(time).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " МСК"
   ].filter(Boolean).join(" · ");
 }
 
@@ -870,6 +875,8 @@ export function MarketDashboard() {
                       key={q.secid}
                       q={q}
                       compact={dense}
+                      day={data.sparkDays?.[q.secid === "IMOEX" ? "imoex" : "rtsi"] ?? data.calendarDay}
+                      historical={Boolean(data.sparkDays?.[q.secid === "IMOEX" ? "imoex" : "rtsi"] && data.sparkDays[q.secid === "IMOEX" ? "imoex" : "rtsi"] !== data.calendarDay)}
                       spark={
                         q.secid === "IMOEX"
                           ? data.sparklines.imoex
