@@ -23,3 +23,10 @@ export function quoteSessionDay(time: number): string | null {
   if (!Number.isFinite(time) || time <= 0) return null;
   return new Date(time + 10800000).toISOString().slice(0, 10);
 }
+
+// ISS SYSTIME датирует публикацию сводки. Котировка может быть старше.
+export function preferIndexCandle(candleTime?: string, quoteTime?: string): boolean {
+  const candle = Date.parse(candleTime ?? "");
+  const quote = Date.parse(quoteTime ?? "");
+  return Number.isFinite(candle) && (!Number.isFinite(quote) || candle > quote);
+}

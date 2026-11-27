@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { restoreMissing } from "@/lib/moex/snapshot";
 import { getCache } from "@vercel/functions";
-import { lastCandleBefore, previousMoscowDay, quoteSessionDay } from "@/lib/moex/calendar";
+import { lastCandleBefore, preferIndexCandle, previousMoscowDay, quoteSessionDay } from "@/lib/moex/calendar";
 import { NextResponse } from "next/server";
 import { fetchJson, lastOrNull, num, parseIssTable, todayMsk } from "@/lib/moex/iss";
 import { mergeQuoteRows, validPrice, type ProviderQuote } from "@/lib/moex/quote-priority";
@@ -56,13 +56,7 @@ export interface Quote {
   // нет (площадка закрыта — TOM торгуется только 10:00-19:00 МСК), само
   // основное значение уже и есть курс ЦБ, дублировать тут незачем.
   cbr?: { value: number; changePct: number | null } | null;
-  // Заполнено, только если конкретно ЭТА котировка реально не обновлялась
-  // прямо сейчас (устарела относительно самого свежего инструмента в той
-  // же группе) — время последнего реального обновления, "DD.MM HH:MM"
-  // по МСК. Пример: РТС не считается в утреннюю и часть вечерней сессии
-  // (нет курса USD/RUB), а IMOEX тикает непрерывно — без этого поля
-  // карточка РТС молча показывала бы вчерашние %, выглядящие как текущие.
-  staleSince?: string | null;
+
 }
 
 // Ближайший фьючерс; last уже приведён к единицам базового актива.
@@ -356,35 +350,6 @@ async function applyCalendarChange(
 
 // --- Преобразователи блоков ---
 
-// SYSTIME/UPDATETIME у MOEX — время по МСК без явной таймзоны в строке.
-// "YYYY-MM-DD HH:MM:SS" (МСК) минус 3 часа = UTC epoch мс.
-function parseMskDateTime(s: string): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(s);
-  if (!m) return null;
-  const [y, mo, d, h, mi, se] = m.slice(1).map(Number);
-  return Date.UTC(y, mo - 1, d, h, mi, se) - 3 * 60 * 60 * 1000;
-}
-
-function formatMskDateTime(epochMs: number): string {
-  const d = new Date(epochMs + 3 * 60 * 60 * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-}
-
-// Индексы считаются независимо друг от друга: РТС нужен курс USD/RUB,
-// которого нет ни в утреннюю сессию, ни часть вечерней — в эти окна РТС
-// молча замирает на цене вчерашнего закрытия, а IMOEX (не нужен курс
-// валюты) тикает непрерывно. Раньше карточка РТС в этот момент показывала
-// вчерашний % как будто текущий — вводило в заблуждение (живой пример:
-// РТС не обновлялся с 19:00 понедельника, хотя IMOEX тикал каждую
-// секунду в 07:49 вторника). Эталон "сейчас реально идут торги" — самый
-// свежий SYSTIME среди всех индексов в этом же ответе; если конкретный
-// индекс отстаёт от него больше STALE_THRESHOLD_MS — помечаем staleSince
-// временем его последнего реального обновления вместо тихого показа
-// устаревшего %. Порог, а не сравнение календарных дат — отставание
-// внутри одного дня (вечерняя сессия) календарной проверкой не поймать.
-const STALE_THRESHOLD_MS = 3 * 60 * 1000;
-
 function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<typeof indexSparkline>>>, brokerTimes: Map<string, string>): Quote[] {
   const rows = parseIssTable(json, "marketdata");
   // secid — внутренний идентификатор для клиента/сопоставления с фьючерсом;
@@ -394,11 +359,6 @@ function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<t
     IMOEX: { source: "IMOEX2", name: "Индекс МосБиржи" },
     RTSI: { source: "RTSI", name: "Индекс РТС" },
   };
-  const sysTimes = rows
-    .map((r) => (typeof r["SYSTIME"] === "string" ? parseMskDateTime(r["SYSTIME"]) : null))
-    .filter((t): t is number => t !== null);
-  const freshest = sysTimes.length > 0 ? Math.max(...sysTimes) : null;
-
   return ["IMOEX", "RTSI"]
     .map((secid): Quote | null => {
       const source = meta[secid].source;
@@ -407,11 +367,8 @@ function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<t
       const r =
         candidates.find((c) => num(c["CURRENTVALUE"])) ?? candidates[0];
       const chart = charts[secid];
-      // До утренней сессии показываем закрытие последней сессии по свечам.
-      // В сводке ISS SYSTIME относится к публикации, а не к сделке.
-      const overnightClose = nowMsk() < "07:00:00" && chart?.date === previousMoscowDay(todayMsk()).day &&
-        !(Date.parse(brokerTimes.get(source) ?? "") >= Date.parse(chart.candleTime));
-      if (!r || !lastOrNull(r["CURRENTVALUE"]) || overnightClose) {
+      if (!r || !lastOrNull(r["CURRENTVALUE"]) ||
+        preferIndexCandle(chart?.candleTime, brokerTimes.get(source))) {
         if (!chart?.values.length) return null;
         return {
           secid, name: meta[secid].name, last: chart.values[chart.values.length - 1],
@@ -419,12 +376,6 @@ function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<t
           source: chart.source + " · закрытие свечи", candleTime: chart.candleTime,
         };
       }
-      const sysTime =
-        typeof r["SYSTIME"] === "string" ? parseMskDateTime(r["SYSTIME"]) : null;
-      const staleSince =
-        freshest !== null && sysTime !== null && freshest - sysTime > STALE_THRESHOLD_MS
-          ? formatMskDateTime(sysTime)
-          : null;
       return {
         secid,
         name: meta[secid].name,
@@ -434,7 +385,6 @@ function buildIndices(json: unknown, charts: Record<string, Awaited<ReturnType<t
         high: num(r["HIGH"]),
         low: num(r["LOW"]),
         unit: "п.",
-        staleSince,
       };
     })
     .filter((q): q is Quote => q !== null);
